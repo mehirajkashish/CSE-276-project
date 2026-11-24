@@ -5,6 +5,7 @@
   "description": "StudyMind AI - AI Study Assistant using RAG",
   "scripts": {
     "start": "python run.py",
-    "dev": "python run.py"
+    "dev": "python run.py",
+    "build": "npm --prefix frontend run build"
   }
 }
