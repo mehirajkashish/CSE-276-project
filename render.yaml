@@ -1,22 +1,18 @@
 services:
-  # Backend FastAPI Web Service
+  # 100% Free FastAPI Web Service on Render (No Credit Card Required)
   - type: web
     name: studymind-backend
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /api/health
-    plan: standard
-    disk:
-      name: studymind-storage
-      mountPath: /app/data
-      sizeGB: 10
+    plan: free
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: DATABASE_URL
-        value: sqlite:////app/data/studymind.db
+        value: sqlite:///./data/studymind.db
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_ALGORITHM
@@ -24,7 +20,7 @@ services:
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 4320
       - key: CORS_ORIGINS
-        value: https://*.github.io,http://localhost:5173,http://localhost:80
+        value: https://mehirajkashish.github.io,https://*.github.io,http://localhost:5173,http://localhost:80
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
