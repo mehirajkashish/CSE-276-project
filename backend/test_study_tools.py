@@ -10,7 +10,34 @@ def test_study_service():
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == "alex@university.edu").first()
+        if not user:
+            from app.api.auth import register
+            from app.models.schemas import UserRegisterRequest
+            reg = register(UserRegisterRequest(
+                full_name="Alex Academic",
+                email="alex@university.edu",
+                password="password123",
+                confirm_password="password123"
+            ), db)
+            user = db.query(User).filter(User.email == "alex@university.edu").first()
+
         doc = db.query(Document).filter(Document.user_id == user.id).first()
+        if not doc:
+            from fpdf import FPDF
+            from app.services.document_service import document_service
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica", "B", 16)
+            pdf.cell(0, 10, "Chapter 1: Neural Networks and Backpropagation")
+            pdf.ln(10)
+            pdf.set_font("Helvetica", size=11)
+            pdf.multi_cell(0, 7, "Neural networks learn representations through backpropagation, computing the gradient of the loss with respect to weights using the chain rule.")
+            doc = document_service.process_and_add_pdf(
+                db=db,
+                user_id=user.id,
+                filename="deep_learning_handbook.pdf",
+                file_bytes=pdf.output()
+            )
         
         print("Testing Study Service with doc:", doc.filename)
         
