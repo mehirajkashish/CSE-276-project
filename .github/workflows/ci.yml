@@ -1,0 +1,59 @@
+name: Continuous Integration & Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  frontend-build:
+    name: Frontend Build & Type Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package.json
+
+      - name: Install Dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Verify Production Build
+        working-directory: ./frontend
+        run: npm run build
+
+  backend-tests:
+    name: Backend RAG & Auth Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Full-Stack Auth & RAG Test
+        run: python backend/test_auth_and_rag.py
+
+      - name: Run RAG Pipeline Verification Test
+        run: python backend/test_rag.py
+
+      - name: Run Study Toolkit Test
+        run: python backend/test_study_tools.py

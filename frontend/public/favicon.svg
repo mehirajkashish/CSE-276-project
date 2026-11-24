@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <!-- Deep Cosmic Radiance Gradient -->
+    <radialGradient id="singularityVoid" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#000000" />
+      <stop offset="85%" stop-color="#050508" />
+      <stop offset="100%" stop-color="#0F0F1A" />
+    </radialGradient>
+
+    <!-- Glowing Accretion Disk Spectrum -->
+    <linearGradient id="accretionSpectrum" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="25%" stop-color="#818CF8" />
+      <stop offset="50%" stop-color="#FFFFFF" />
+      <stop offset="75%" stop-color="#C084FC" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+
+    <linearGradient id="photonRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="30%" stop-color="#E0E7FF" />
+      <stop offset="60%" stop-color="#818CF8" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+
+    <!-- Gaussian Glow Filters -->
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="coreGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Deep Obsidian Icon Base -->
+  <rect width="512" height="512" rx="112" fill="#000000" />
+
+  <!-- Ambient Relativistic Light Spill -->
+  <ellipse cx="256" cy="256" rx="200" ry="80" transform="rotate(-28 256 256)" fill="url(#accretionSpectrum)" opacity="0.3" filter="url(#coreGlow)" />
+
+  <!-- Upper Gravitational Lensing Halo (Over the Singularity) -->
+  <path d="M 120,256 C 120,128 392,128 392,256" stroke="url(#accretionSpectrum)" stroke-width="26" stroke-linecap="round" fill="none" opacity="0.9" filter="url(#softGlow)" />
+  <path d="M 148,256 C 148,152 364,152 364,256" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.95" />
+
+  <!-- Main Diagonal Accretion Disk (Back Segment) -->
+  <ellipse cx="256" cy="256" rx="208" ry="62" transform="rotate(-28 256 256)" stroke="url(#accretionSpectrum)" stroke-width="26" fill="none" opacity="0.75" filter="url(#softGlow)" />
+  <ellipse cx="256" cy="256" rx="200" ry="56" transform="rotate(-28 256 256)" stroke="#FFFFFF" stroke-width="8" fill="none" opacity="0.9" />
+
+  <!-- Event Horizon / Black Hole Singularity Void -->
+  <circle cx="256" cy="256" r="112" fill="url(#singularityVoid)" />
+
+  <!-- Photon Sphere Boundary (Sharp Luminous Edge) -->
+  <circle cx="256" cy="256" r="113" stroke="url(#photonRingGrad)" stroke-width="6" fill="none" opacity="0.9" filter="url(#softGlow)" />
+  <circle cx="256" cy="256" r="111" stroke="#FFFFFF" stroke-width="2.5" fill="none" opacity="1" />
+
+  <!-- Front Accretion Disk Segment (Passing in front of Event Horizon) -->
+  <path d="M 72,324 C 138,368 374,254 440,188" stroke="url(#accretionSpectrum)" stroke-width="26" stroke-linecap="round" fill="none" opacity="0.98" filter="url(#softGlow)" />
+  <path d="M 88,316 C 148,356 362,250 424,196" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" fill="none" opacity="1" />
+
+  <!-- Relativistic Beaming / Singularity Jet Flares -->
+  <circle cx="256" cy="256" r="4.5" fill="#FFFFFF" opacity="0.9" filter="url(#softGlow)" />
+</svg>
