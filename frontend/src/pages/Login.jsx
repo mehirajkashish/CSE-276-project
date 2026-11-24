@@ -139,8 +139,8 @@ export default function Login() {
         const detail = err.response?.data?.detail;
         if (detail) {
           setErrorMessage(typeof detail === 'string' ? detail : JSON.stringify(detail));
-        } else if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-          // Graceful fallback to demo mode on network unavailability
+        } else if (!err.response || err.response?.status === 405 || err.response?.status === 404 || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+          // Graceful fallback to demo mode on network unavailability or static host
           enterDemoMode();
           navigate('/dashboard', { replace: true });
         } else {
@@ -163,8 +163,8 @@ export default function Login() {
         const detail = err.response?.data?.detail;
         if (detail) {
           setErrorMessage(typeof detail === 'string' ? detail : 'Invalid email or password.');
-        } else if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-          // If server is currently offline, auto fallback into active demo session
+        } else if (!err.response || err.response?.status === 405 || err.response?.status === 404 || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+          // If server is currently offline or static host returns 405, auto fallback into active demo session
           enterDemoMode();
           navigate('/dashboard', { replace: true });
         } else {
