@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { authApi } from '../services/api';
+import { authApi, getApiBaseUrl, setApiBaseUrl } from '../services/api';
 import {
   GraduationCap,
   Sparkles,
@@ -68,9 +68,40 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [showBackendConfig, setShowBackendConfig] = useState(false);
+  const [backendUrlInput, setBackendUrlInput] = useState(() => getApiBaseUrl());
 
   const { login, register, enterDemoMode } = useAuth();
   const from = location.state?.from?.pathname || '/dashboard';
+
+  const formatAuthConnectionError = (err, actionLabel) => {
+    const detail = err.response?.data?.detail;
+    if (detail) {
+      return typeof detail === 'string' ? detail : JSON.stringify(detail);
+    }
+    const status = err.response?.status;
+    const currentApi = getApiBaseUrl();
+    if (status === 404 || status === 405) {
+      setShowBackendConfig(true);
+      return `Backend API endpoint not found at "${currentApi}" (HTTP ${status}). Static hosting cannot process ${actionLabel} without a live FastAPI backend URL—configure your backend URL below or set VITE_API_URL.`;
+    }
+    if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
+      setShowBackendConfig(true);
+      return `Cannot connect to backend server at "${currentApi}". Start the local FastAPI server or enter your deployed Render/Railway API URL below.`;
+    }
+    return err.message || `${actionLabel} failed. Please try again.`;
+  };
+
+  const handleSaveBackendUrl = () => {
+    let cleaned = backendUrlInput.trim().replace(/\/+$/, '');
+    if (cleaned && !cleaned.endsWith('/api') && cleaned.startsWith('http')) {
+      cleaned = `${cleaned}/api`;
+    }
+    setApiBaseUrl(cleaned);
+    setBackendUrlInput(getApiBaseUrl());
+    setErrorMessage('');
+    setSuccessMessage(`Backend API URL updated to "${getApiBaseUrl()}". Try signing in now.`);
+  };
 
   // Password strength calculation
   const getPasswordStrength = (pass) => {
@@ -136,16 +167,7 @@ export default function Login() {
           navigate(from, { replace: true });
         }, 500);
       } catch (err) {
-        const detail = err.response?.data?.detail;
-        if (detail) {
-          setErrorMessage(typeof detail === 'string' ? detail : JSON.stringify(detail));
-        } else if (!err.response || err.response?.status === 405 || err.response?.status === 404 || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-          // Graceful fallback to demo mode on network unavailability or static host
-          enterDemoMode();
-          navigate('/dashboard', { replace: true });
-        } else {
-          setErrorMessage(err.message || 'Registration failed. Please try again.');
-        }
+        setErrorMessage(formatAuthConnectionError(err, 'registration'));
       } finally {
         setIsLoading(false);
       }
@@ -160,16 +182,7 @@ export default function Login() {
         await login(email.trim(), password, rememberMe);
         navigate(from, { replace: true });
       } catch (err) {
-        const detail = err.response?.data?.detail;
-        if (detail) {
-          setErrorMessage(typeof detail === 'string' ? detail : 'Invalid email or password.');
-        } else if (!err.response || err.response?.status === 405 || err.response?.status === 404 || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-          // If server is currently offline or static host returns 405, auto fallback into active demo session
-          enterDemoMode();
-          navigate('/dashboard', { replace: true });
-        } else {
-          setErrorMessage(err.message || 'Login failed. Please verify credentials.');
-        }
+        setErrorMessage(formatAuthConnectionError(err, 'sign in'));
       } finally {
         setIsLoading(false);
       }
@@ -370,9 +383,34 @@ export default function Login() {
 
           {/* Error & Success Alerts */}
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{errorMessage}</span>
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs space-y-2 animate-in fade-in">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{errorMessage}</span>
+              </div>
+              {showBackendConfig && (
+                <div className="pt-2 border-t border-rose-500/20 space-y-1.5">
+                  <label className="block text-[11px] font-medium text-rose-200">
+                    FastAPI Backend URL (e.g., https://studymind-backend.onrender.com/api)
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={backendUrlInput}
+                      onChange={(e) => setBackendUrlInput(e.target.value)}
+                      placeholder="https://your-backend.onrender.com/api"
+                      className="flex-1 px-2.5 py-1.5 rounded-lg bg-[#0D0D0D] border border-[#262626] text-white text-[11px] font-mono focus:outline-none focus:border-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveBackendUrl}
+                      className="px-2.5 py-1.5 rounded-lg bg-white text-black text-[11px] font-semibold hover:bg-neutral-200 transition"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -495,7 +533,7 @@ export default function Login() {
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 top-2.5 text-[#666666] hover:text-white transition"
                     >
-                      {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-[#666666]" />}
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-[#666666]" />}
                     </button>
                   </div>
                 </div>

@@ -89,6 +89,9 @@ export function AuthProvider({ children }) {
     setIsDemoMode(false);
 
     const data = await authApi.login({ email, password });
+    if (!data?.access_token || !data?.user) {
+      throw new Error('Backend did not return a valid auth token. Ensure VITE_API_URL points to your FastAPI backend.');
+    }
     const storage = rememberMe ? localStorage : sessionStorage;
 
     if (rememberMe) {
@@ -111,6 +114,9 @@ export function AuthProvider({ children }) {
     setIsDemoMode(false);
 
     const data = await authApi.register({ full_name, email, password, confirm_password });
+    if (!data?.access_token || !data?.user) {
+      throw new Error('Backend did not return a valid auth token. Ensure VITE_API_URL points to your FastAPI backend.');
+    }
     localStorage.setItem('studymind_token', data.access_token);
     localStorage.setItem('studymind_user', JSON.stringify(data.user));
     sessionStorage.removeItem('studymind_token');

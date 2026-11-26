@@ -13,7 +13,7 @@ import {
   Info,
   BookOpen
 } from 'lucide-react';
-import { documentApi } from '../services/api';
+import { documentApi, getApiBaseUrl } from '../services/api';
 
 export default function Viewer() {
   const [searchParams] = useSearchParams();
@@ -70,10 +70,12 @@ export default function Viewer() {
 
   const getPdfUrl = (d) => {
     if (!d) return '';
-    if (d.id) return `/api/documents/${d.id}/file`;
+    const apiBase = getApiBaseUrl();
+    if (d.id) return `${apiBase}/documents/${d.id}/file`;
     const path = typeof d === 'string' ? d : d.file_path || '';
     const clean = path.replace(/\\/g, '/').split('/').pop();
-    return `/uploads/${clean}`;
+    const originBase = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : '';
+    return `${originBase}/uploads/${clean}`;
   };
 
   const doc = docDetails?.document;

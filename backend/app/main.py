@@ -28,6 +28,7 @@ is_wildcard = "*" in raw_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if is_wildcard else raw_origins,
+    allow_origin_regex=None if is_wildcard else r"https://([a-zA-Z0-9-]+\.)?(github\.io|vercel\.app|onrender\.com)",
     allow_credentials=not is_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -21,8 +21,31 @@ export function getBasePath() {
   return '';
 }
 
+const DEFAULT_API_URL = import.meta.env.VITE_API_URL || '/api';
+
+export function getApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('studymind_api_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+  return DEFAULT_API_URL;
+}
+
+export function setApiBaseUrl(url) {
+  if (typeof window === 'undefined') return;
+  const cleaned = (url || '').trim().replace(/\/+$/, '');
+  if (cleaned) {
+    localStorage.setItem('studymind_api_url', cleaned);
+  } else {
+    localStorage.removeItem('studymind_api_url');
+  }
+  api.defaults.baseURL = getApiBaseUrl();
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: getApiBaseUrl(),
   timeout: 60000,
 });
 
@@ -35,9 +58,10 @@ const isDemo = () => {
 let dynamicDemoDocs = [...DEMO_DOCUMENTS];
 let dynamicDemoConvs = [...DEMO_CONVERSATIONS];
 
-// Request Interceptor: Attach JWT Token
+// Request Interceptor: Attach JWT Token & dynamic API baseURL
 api.interceptors.request.use(
   (config) => {
+    config.baseURL = getApiBaseUrl();
     const token = localStorage.getItem('studymind_token') || sessionStorage.getItem('studymind_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

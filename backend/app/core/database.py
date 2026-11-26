@@ -26,7 +26,36 @@ def get_db():
     finally:
         db.close()
 
+def seed_sample_users():
+    """Idempotently seeds sample accounts shown on the Sign In page if missing."""
+    from app.models.db_models import User
+    from app.core.security import hash_password
+
+    samples = [
+        ("Sample Scholar", "student@studymind.ai", "StudyMind@2025"),
+        ("Alex Morgan", "alex@university.edu", "Study@2025"),
+    ]
+    db = SessionLocal()
+    try:
+        changed = False
+        for full_name, email, plain_pw in samples:
+            if not db.query(User).filter(User.email == email).first():
+                db.add(User(
+                    full_name=full_name,
+                    email=email,
+                    hashed_password=hash_password(plain_pw),
+                ))
+                changed = True
+        if changed:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[Database] Sample user seed skipped: {e}")
+    finally:
+        db.close()
+
 def init_db():
     # Import all models before create_all
     import app.models.db_models
     Base.metadata.create_all(bind=engine)
+    seed_sample_users()
