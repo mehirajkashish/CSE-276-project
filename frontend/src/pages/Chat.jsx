@@ -11,7 +11,7 @@ import {
   UploadCloud, X, GraduationCap, Square, Pencil, Check,
   Search, Code2, FlaskConical, ClipboardList, Compass,
   FileText, PanelLeft, Settings, UserRound, Pin, PinOff,
-  ChevronDown,
+  ChevronDown, ArrowUp,
 } from 'lucide-react';
 import ChatBubble from '../components/ChatBubble';
 import { chatApi, documentApi } from '../services/api';
@@ -316,6 +316,8 @@ export default function Chat() {
   const [sidebarOpen,     setSidebarOpen]     = useState(true);
   const [mobileSidebar,   setMobileSidebar]   = useState(false); // mobile overlay
   const [docListOpen,     setDocListOpen]     = useState(false);
+  const [docScopeOpen,    setDocScopeOpen]    = useState(false);
+  const docScopeRef = useRef(null);
 
   /* ── Conversation state ── */
   const [conversations,        setConversations]        = useState([]);
@@ -358,6 +360,16 @@ export default function Chat() {
   useEffect(() => {
     localStorage.setItem('studymind_pinned', JSON.stringify(pinnedIds));
   }, [pinnedIds]);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (docScopeRef.current && !docScopeRef.current.contains(e.target)) {
+        setDocScopeOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
 
   const togglePin = useCallback((e, convId) => {
     e.stopPropagation();
@@ -907,7 +919,7 @@ export default function Chat() {
 
             {/* Error banner */}
             {error && (
-              <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-xs"
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-xs animate-fade-in-up"
                 style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#FCA5A5' }}>
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
@@ -917,108 +929,243 @@ export default function Chat() {
               </div>
             )}
 
-            {/* Level + doc scope row */}
-            <div className="flex items-center gap-2 px-0.5 overflow-x-auto scrollbar-none">
-              <span className="text-[11px] text-[#64748B] font-medium shrink-0">Level:</span>
-              {EXPLANATION_LEVELS.map((lvl) => {
-                const active = tutorLevel === lvl.id;
-                return (
-                  <button key={lvl.id} onClick={() => setTutorLevel(lvl.id)} title={lvl.desc}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium transition shrink-0"
-                    style={active
-                      ? { background: 'rgba(139,124,255,0.18)', border: '1px solid rgba(139,124,255,0.4)', color: '#C4B5FD' }
-                      : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', color: '#94A3B8' }}>
-                    {lvl.label}
-                  </button>
-                );
-              })}
-              <div className="flex-1" />
-              <span className="text-[11px] text-[#64748B] font-mono shrink-0 hidden sm:block">
-                {selectedDocIds.length > 0 ? `${selectedDocIds.length} PDF selected` : `All PDFs (${documents.length})`}
-              </span>
-            </div>
-
-            {/* Glass composer box */}
+            {/* Unified Glass Composer Capsule */}
             <div
-              className="rounded-2xl transition-all duration-200"
-              style={glassElevated}
+              className="relative rounded-[22px] transition-all duration-200 border border-white/[0.1] focus-within:border-[#4F8CFF]/50 focus-within:shadow-[0_12px_48px_rgba(79,140,255,0.12)]"
+              style={{
+                background: 'rgba(19, 30, 50, 0.84)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+                boxShadow: '0 10px 40px rgba(0, 0, 0, 0.45)',
+              }}
             >
+              {/* Selected PDF filter pills (only when narrowed to specific docs) */}
+              {selectedDocIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-0.5">
+                  {selectedDocIds.map((id) => {
+                    const docObj = documents.find((d) => d.id === id);
+                    if (!docObj) return null;
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg text-[11px] font-medium text-[#C4B5FD]"
+                        style={{ background: 'rgba(139,124,255,0.14)', border: '1px solid rgba(139,124,255,0.28)' }}
+                      >
+                        <FileText className="w-3 h-3 text-[#8B7CFF] shrink-0" />
+                        <span className="truncate max-w-[160px]">{docObj.filename}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDoc(id)}
+                          className="p-0.5 rounded hover:bg-white/10 text-[#94A3B8] hover:text-white transition"
+                          title="Remove filter"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Prompt Input */}
               <textarea
                 ref={textareaRef}
-                rows={2}
+                rows={1}
                 value={inputQuestion}
                 onChange={(e) => { setInputQuestion(e.target.value); autoResize(); }}
                 onKeyDown={handleKeyDown}
-                placeholder={isListening ? '🎤 Listening for your voice…' : `Ask anything about your studies… (${activeModeObj.label} mode)`}
+                placeholder={isListening ? '🎤 Listening for your voice…' : `Message StudyMind AI… (${activeModeObj.label} mode)`}
                 disabled={loading}
-                className="w-full bg-transparent border-0 text-sm text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none px-4 pt-4 pb-2 leading-relaxed"
-                style={{ minHeight: '56px', maxHeight: '180px' }}
+                className="w-full bg-transparent border-0 text-[14.5px] text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none px-4 pt-3.5 pb-2 leading-relaxed"
+                style={{ minHeight: '46px', maxHeight: '180px' }}
               />
 
-              {/* Composer action row */}
-              <div className="flex items-center gap-2 px-3 pb-3">
-                {/* Attach */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Attach PDF"
-                  className="p-2 rounded-xl transition"
-                  style={{ background: 'rgba(255,255,255,0.04)', color: '#94A3B8' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color='#4F8CFF'; e.currentTarget.style.background='rgba(79,140,255,0.08)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color='#94A3B8'; e.currentTarget.style.background='rgba(255,255,255,0.04)'; }}
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
-
-                {/* Voice */}
-                <button
-                  onClick={toggleVoice}
-                  title={isListening ? 'Stop listening' : 'Voice input'}
-                  className="p-2 rounded-xl transition"
-                  style={{ background: isListening ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)', color: isListening ? '#F87171' : '#94A3B8' }}
-                  onMouseEnter={(e) => { if (!isListening) { e.currentTarget.style.color='#4F8CFF'; e.currentTarget.style.background='rgba(79,140,255,0.08)'; }}}
-                  onMouseLeave={(e) => { if (!isListening) { e.currentTarget.style.color='#94A3B8'; e.currentTarget.style.background='rgba(255,255,255,0.04)'; }}}
-                >
-                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-
-                <div className="flex-1" />
-
-                {/* Character hint */}
-                {inputQuestion.length > 0 && (
-                  <span className="text-[10px] text-[#64748B] font-mono">{inputQuestion.length}</span>
-                )}
-
-                {/* Stop / Send */}
-                {isStreaming ? (
+              {/* Integrated Bottom Control Bar */}
+              <div className="flex items-center justify-between gap-2 px-3 pb-2.5 pt-1">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  {/* Attach PDF */}
                   <button
-                    onClick={handleStopGeneration}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition active:scale-95"
-                    style={{ background: '#EF4444' }}
-                    onMouseEnter={(e) => e.currentTarget.style.background='#DC2626'}
-                    onMouseLeave={(e) => e.currentTarget.style.background='#EF4444'}
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingChatFile}
+                    title="Attach PDF to knowledge base"
+                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-[#94A3B8] hover:text-[#F1F5FC] transition disabled:opacity-40"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
                   >
-                    <Square className="w-3.5 h-3.5 fill-current" /> Stop
+                    {isUploadingChatFile ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4F8CFF]" /> : <Paperclip className="w-3.5 h-3.5 text-[#4F8CFF]" />}
+                    <span className="hidden sm:inline text-[11px]">PDF</span>
                   </button>
-                ) : (
+
+                  {/* Voice input */}
                   <button
-                    onClick={() => handleSendMessage()}
-                    disabled={loading || !inputQuestion.trim()}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
-                    style={{ background: inputQuestion.trim() ? '#4F8CFF' : 'rgba(79,140,255,0.25)' }}
-                    onMouseEnter={(e) => { if (inputQuestion.trim()) e.currentTarget.style.background='#3B7BFA'; }}
-                    onMouseLeave={(e) => { if (inputQuestion.trim()) e.currentTarget.style.background='#4F8CFF'; }}
+                    type="button"
+                    onClick={toggleVoice}
+                    title={isListening ? 'Stop listening' : 'Voice input'}
+                    className={`inline-flex items-center justify-center w-8 h-8 rounded-xl transition ${isListening ? 'animate-pulse' : ''}`}
+                    style={{
+                      background: isListening ? 'rgba(239,68,68,0.16)' : 'rgba(255,255,255,0.04)',
+                      border: isListening ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.07)',
+                      color: isListening ? '#F87171' : '#94A3B8',
+                    }}
                   >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                    Send
+                    {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                   </button>
-                )}
+
+                  {/* Segmented Explanation Level Control */}
+                  <div
+                    className="inline-flex items-center p-0.5 rounded-xl"
+                    style={{ background: 'rgba(8,13,24,0.55)', border: '1px solid rgba(255,255,255,0.07)' }}
+                  >
+                    {EXPLANATION_LEVELS.map((lvl) => {
+                      const active = tutorLevel === lvl.id;
+                      return (
+                        <button
+                          key={lvl.id}
+                          type="button"
+                          onClick={() => setTutorLevel(lvl.id)}
+                          title={lvl.desc}
+                          className="px-2 sm:px-2.5 py-1 rounded-[9px] text-[11px] font-medium transition"
+                          style={active
+                            ? { background: 'rgba(139,124,255,0.22)', color: '#E9D5FF', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }
+                            : { color: '#94A3B8' }}
+                        >
+                          {lvl.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Interactive Document Scope Selector */}
+                  <div className="relative" ref={docScopeRef}>
+                    <button
+                      type="button"
+                      onClick={() => setDocScopeOpen((v) => !v)}
+                      title="Choose which PDFs to search"
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium transition"
+                      style={{
+                        background: selectedDocIds.length > 0 ? 'rgba(79,140,255,0.14)' : 'rgba(255,255,255,0.04)',
+                        border: selectedDocIds.length > 0 ? '1px solid rgba(79,140,255,0.3)' : '1px solid rgba(255,255,255,0.07)',
+                        color: selectedDocIds.length > 0 ? '#93C5FD' : '#94A3B8',
+                      }}
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-[#4F8CFF] shrink-0" />
+                      <span className="hidden xs:inline sm:inline">
+                        {selectedDocIds.length > 0 ? `${selectedDocIds.length} PDF` : `All PDFs (${documents.length})`}
+                      </span>
+                      <ChevronDown className={`w-3 h-3 transition-transform ${docScopeOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {docScopeOpen && (
+                      <div
+                        className="absolute bottom-10 left-0 w-64 rounded-2xl p-2 z-40 space-y-1 animate-fade-in-up"
+                        style={{
+                          background: 'rgba(15, 24, 42, 0.96)',
+                          backdropFilter: 'blur(20px)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
+                        }}
+                      >
+                        <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
+                          Search Knowledge Scope
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { handleToggleDoc('all'); setDocScopeOpen(false); }}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs transition"
+                          style={{
+                            color: selectedDocIds.length === 0 ? '#F1F5FC' : '#94A3B8',
+                            background: selectedDocIds.length === 0 ? 'rgba(79,140,255,0.15)' : 'transparent',
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            <BookOpen className="w-3.5 h-3.5 text-[#4F8CFF]" />
+                            All uploaded PDFs ({documents.length})
+                          </span>
+                          {selectedDocIds.length === 0 && <Check className="w-3.5 h-3.5 text-[#4F8CFF]" />}
+                        </button>
+
+                        {documents.length > 0 && (
+                          <div className="max-h-44 overflow-y-auto space-y-0.5 pt-1 border-t border-white/[0.06] scrollbar-thin">
+                            {documents.map((d) => {
+                              const sel = selectedDocIds.includes(d.id);
+                              return (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => handleToggleDoc(d.id)}
+                                  className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs text-left transition"
+                                  style={{
+                                    color: sel ? '#F1F5FC' : '#94A3B8',
+                                    background: sel ? 'rgba(139,124,255,0.15)' : 'transparent',
+                                  }}
+                                >
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <FileText className={`w-3.5 h-3.5 shrink-0 ${sel ? 'text-[#8B7CFF]' : 'text-[#64748B]'}`} />
+                                    <span className="truncate">{d.filename}</span>
+                                  </span>
+                                  {sel && <Check className="w-3.5 h-3.5 text-[#8B7CFF] shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => { setDocScopeOpen(false); fileInputRef.current?.click(); }}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-medium text-[#4F8CFF] hover:bg-white/[0.04] border-t border-white/[0.06] pt-2 transition"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Upload new PDF
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: Char counter + Stop / Send */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {inputQuestion.length > 120 && (
+                    <span className="text-[10px] text-[#64748B] font-mono hidden sm:inline">
+                      {inputQuestion.length}
+                    </span>
+                  )}
+
+                  {isStreaming ? (
+                    <button
+                      type="button"
+                      onClick={handleStopGeneration}
+                      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-xs font-semibold text-white transition active:scale-95"
+                      style={{ background: '#EF4444', boxShadow: '0 4px 16px rgba(239,68,68,0.35)' }}
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>Stop</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSendMessage()}
+                      disabled={loading || !inputQuestion.trim()}
+                      title="Send message (Enter)"
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-white transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                      style={inputQuestion.trim()
+                        ? {
+                            background: 'linear-gradient(135deg, #4F8CFF, #8B7CFF)',
+                            boxShadow: '0 4px 18px rgba(79, 140, 255, 0.35)',
+                          }
+                        : { background: 'rgba(255,255,255,0.08)' }}
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4 stroke-[2.5]" />}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Footer hint */}
             <p className="text-center text-[11px] text-[#64748B]">
               <span className="hidden sm:inline">Enter to send · Shift+Enter for new line · </span>
-              Drop a PDF anywhere to upload
+              Drop a PDF anywhere to index
             </p>
           </div>
         </div>
