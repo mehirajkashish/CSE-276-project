@@ -256,11 +256,7 @@ export default function Viewer() {
                 className="w-full h-full rounded-xl border-0 bg-white"
               />
             ) : (
-              <iframe
-                src={`${getPdfUrl(doc)}#page=${currentPage}`}
-                title="PDF Document Viewer"
-                className="w-full h-full rounded-xl border-0 bg-white"
-              />
+              <div className="m-auto text-xs text-[#9A9A9A]">Preparing PDF preview...</div>
             )}
           </div>
         </div>

@@ -5,33 +5,62 @@
 @layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: #262626 #0D0D0D;
+    scrollbar-color: #1E2E4A #080D18;
   }
   
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   
   ::-webkit-scrollbar-track {
-    background: #0D0D0D;
+    background: transparent;
   }
   
   ::-webkit-scrollbar-thumb {
-    background: #262626;
+    background: #1E2E4A;
     border-radius: 9999px;
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    background: #3A3A3A;
+    background: #2A3F60;
   }
 
   body {
-    background-color: #0D0D0D;
-    color: #FFFFFF;
+    background-color: #080D18;
+    color: #F1F5FC;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 }
+
+/* ── Bounce animation for typing dots ── */
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+  40%           { transform: translateY(-6px); opacity: 1; }
+}
+
+/* ── Subtle message & welcome entrance animation ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Glass surface helper ── */
+.glass-surface {
+  background: rgba(17, 28, 46, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── Smooth scrollbar for chat ── */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; }
 
 /* Framer & Obsidian Dark System */
 .framer-card {
