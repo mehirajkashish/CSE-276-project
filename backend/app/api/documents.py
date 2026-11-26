@@ -1,7 +1,7 @@
 from typing import List
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,6 +10,10 @@ from app.core.security import get_current_user
 from app.models.db_models import User, Document
 from app.services.document_service import document_service
 from app.models.schemas import DocumentResponse
+from app.rag.extractor import HAS_PYMUPDF
+
+if HAS_PYMUPDF:
+    import fitz
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -104,6 +108,32 @@ def get_document_details(
     }
 
 
+def _resolve_document_file(document_id: str, db: Session) -> tuple[Document, Path]:
+    """Resolve DB Document record and its physical PDF path on disk."""
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found."
+        )
+
+    target_filename = Path(doc.file_path).name
+    file_path = UPLOADS_DIR / target_filename
+
+    if not file_path.exists():
+        matches = list(UPLOADS_DIR.glob(f"*{doc.filename}*"))
+        if matches:
+            file_path = matches[0]
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"PDF physical file '{target_filename}' not found on storage."
+        )
+
+    return doc, file_path
+
+
 @router.get("/{document_id}/file")
 def get_document_file(
     document_id: str,
@@ -113,29 +143,7 @@ def get_document_file(
     Serve the raw PDF file directly for inline rendering in Document Viewer.
     Allows iframe / object embedding without falling back to Vite SPA index.html.
     """
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document '{document_id}' not found."
-        )
-
-    # 1. Try file_path from DB
-    target_filename = Path(doc.file_path).name
-    file_path = UPLOADS_DIR / target_filename
-
-    # 2. If not found, try by filename match
-    if not file_path.exists():
-        matches = list(UPLOADS_DIR.glob(f"*{doc.filename}*"))
-        if matches:
-            file_path = matches[0]
-
-    # 3. If still not found, return 404 JSON instead of HTML
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"PDF physical file '{target_filename}' not found on storage."
-        )
+    doc, file_path = _resolve_document_file(document_id, db)
 
     safe_name = doc.filename.replace('"', "")
     return FileResponse(
@@ -146,6 +154,50 @@ def get_document_file(
             "Content-Disposition": f'inline; filename="{safe_name}"',
             "Cache-Control": "public, max-age=3600"
         }
+    )
+
+
+@router.get("/{document_id}/page/{page_number}")
+def get_document_page_image(
+    document_id: str,
+    page_number: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Render a single 1-indexed PDF page as a crisp PNG using PyMuPDF so Document Viewer
+    never depends on cross-origin PDF iframes or browser PDF plugin support.
+    """
+    if not HAS_PYMUPDF:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="PyMuPDF is not installed on the server."
+        )
+
+    _, file_path = _resolve_document_file(document_id, db)
+
+    try:
+        with fitz.open(str(file_path)) as pdf_doc:
+            total_pages = len(pdf_doc)
+            if page_number < 1 or page_number > total_pages:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Page {page_number} out of range (1-{total_pages})."
+                )
+            page = pdf_doc[page_number - 1]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+            png_bytes = pix.tobytes("png")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to render page {page_number}: {str(e)}"
+        )
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"}
     )
 
 

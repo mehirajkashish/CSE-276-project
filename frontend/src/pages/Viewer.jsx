@@ -8,10 +8,12 @@ import {
   Search,
   Layers,
   HardDrive,
-  Calendar,
   Sparkles,
   Info,
-  BookOpen
+  BookOpen,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw
 } from 'lucide-react';
 import { documentApi, getApiBaseUrl } from '../services/api';
 
@@ -26,9 +28,14 @@ export default function Viewer() {
   const [currentPage, setCurrentPage] = useState(targetPage || 1);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Rendered page image (primary, zero-iframe) & optional blob PDF fallback
+  const [pageImgUrl, setPageImgUrl] = useState('');
+  const [pageLoading, setPageLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
   const [pdfBlobUrl, setPdfBlobUrl] = useState('');
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfError, setPdfError] = useState('');
+  const [viewMode, setViewMode] = useState('image'); // 'image' | 'embed'
+  const [zoom, setZoom] = useState(100);
 
   useEffect(() => {
     loadDocuments();
@@ -62,8 +69,12 @@ export default function Viewer() {
     try {
       setLoading(true);
       const res = await documentApi.getDocument(docId);
-      setDocDetails(res);
-      setCurrentPage(targetPage || 1);
+      const normalized = res?.document
+        ? res
+        : { document: res, chunks: res?.chunks || res?.page_chunks || [] };
+      setDocDetails(normalized);
+      setCurrentPage(docId === initialDocId && targetPage ? targetPage : 1);
+      setZoom(100);
     } catch (err) {
       console.error('Failed to load document details:', err);
     } finally {
@@ -74,54 +85,94 @@ export default function Viewer() {
   const getPdfUrl = (d) => {
     if (!d) return '';
     const apiBase = getApiBaseUrl();
-    if (d.id) return `${apiBase}/documents/${d.id}/file`;
+    if (d.id && !String(d.id).startsWith('demo-')) return `${apiBase}/documents/${d.id}/file`;
     const path = typeof d === 'string' ? d : d.file_path || '';
+    if (!path) return '';
     const clean = path.replace(/\\/g, '/').split('/').pop();
     const originBase = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : '';
     return `${originBase}/uploads/${clean}`;
   };
 
+  const getPageImageUrl = (d, page) => {
+    if (!d?.id || String(d.id).startsWith('demo-')) return '';
+    return `${getApiBaseUrl()}/documents/${d.id}/page/${page}`;
+  };
+
   const doc = docDetails?.document;
   const chunks = docDetails?.chunks || [];
+  const pageChunks = chunks.filter((c) => c.page_number === currentPage);
+  const totalPages = doc?.total_pages || doc?.page_count || 1;
 
+  // Fetch high-DPI rendered page image via CORS (completely avoids iframe blocking)
   useEffect(() => {
     let active = true;
     let objectUrl = '';
-    const pdfUrl = getPdfUrl(doc);
+    const imgEndpoint = getPageImageUrl(doc, currentPage);
 
-    if (!doc || !pdfUrl) {
-      setPdfBlobUrl('');
-      setPdfError('');
+    if (!doc || !imgEndpoint) {
+      setPageImgUrl('');
+      setPageError(doc ? 'Preview rendered from extracted text chunks below.' : '');
       return undefined;
     }
 
-    const fetchPdfBlob = async () => {
-      setPdfLoading(true);
-      setPdfError('');
-      setPdfBlobUrl('');
+    const fetchPageImage = async () => {
+      setPageLoading(true);
+      setPageError('');
+      setPageImgUrl('');
       try {
-        const res = await fetch(pdfUrl, { mode: 'cors' });
+        const res = await fetch(imgEndpoint, { mode: 'cors' });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
         const blob = await res.blob();
-        const typedBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
-        objectUrl = URL.createObjectURL(typedBlob);
+        objectUrl = URL.createObjectURL(blob);
         if (active) {
-          setPdfBlobUrl(objectUrl);
+          setPageImgUrl(objectUrl);
         } else {
           URL.revokeObjectURL(objectUrl);
         }
       } catch (err) {
         if (active) {
-          setPdfError(
+          setPageError(
             err.message?.includes('404')
-              ? 'PDF binary is no longer on temporary server storage, though extracted vector chunks remain available on the right.'
-              : 'Could not load inline PDF preview. Try "Raw PDF" above or inspect the extracted vector chunks on the right.'
+              ? 'Original PDF file is no longer in temporary server storage; showing extracted page text instead.'
+              : 'Could not render PDF page image; showing extracted page text or try Raw PDF above.'
           );
         }
       } finally {
-        if (active) setPdfLoading(false);
+        if (active) setPageLoading(false);
+      }
+    };
+
+    fetchPageImage();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [doc?.id, currentPage]);
+
+  // Also fetch same-origin PDF blob if user switches to Interactive PDF Embed
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    const pdfUrl = getPdfUrl(doc);
+
+    if (!doc || !pdfUrl || viewMode !== 'embed') {
+      setPdfBlobUrl('');
+      return undefined;
+    }
+
+    const fetchPdfBlob = async () => {
+      try {
+        const res = await fetch(pdfUrl, { mode: 'cors' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const typedBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        objectUrl = URL.createObjectURL(typedBlob);
+        if (active) setPdfBlobUrl(objectUrl);
+        else URL.revokeObjectURL(objectUrl);
+      } catch {
+        if (active) setPdfBlobUrl('');
       }
     };
 
@@ -130,11 +181,7 @@ export default function Viewer() {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [doc?.id]);
-
-  const pageChunks = chunks.filter((c) => c.page_number === currentPage);
-  const totalPages = doc?.total_pages || doc?.page_count || 1;
-  const totalChunks = doc?.total_chunks || doc?.chunk_count || chunks.length;
+  }, [doc?.id, viewMode]);
 
   const matchingChunks = searchQuery.trim()
     ? chunks.filter((c) => c.text.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -175,25 +222,27 @@ export default function Viewer() {
               <HardDrive className="w-3.5 h-3.5 text-white" />
               <strong className="text-white font-mono">{doc.total_chunks || doc.chunk_count || 0}</strong> Chunks
             </span>
-            <a
-              href={getPdfUrl(doc)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
-            >
-              <span>Raw PDF</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+            {getPdfUrl(doc) && (
+              <a
+                href={getPdfUrl(doc)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
+              >
+                <span>Raw PDF</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
         )}
       </div>
 
       {/* Main Viewer Area (Split into Left: Page View & Right: Extracted Chunks & Search) */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden min-h-0">
-        {/* Left Column: Embedded PDF / Page Display (7 Cols) */}
+        {/* Left Column: Rendered PDF Page Display (7 Cols) */}
         <div className="lg:col-span-7 flex flex-col rounded-2xl border border-[#262626] bg-[#141414] overflow-hidden shadow-sm">
           {/* Page Navigation Header */}
-          <div className="p-3 border-b border-[#222222] bg-[#141414] flex items-center justify-between shrink-0">
+          <div className="p-3 border-b border-[#222222] bg-[#141414] flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 text-xs font-medium text-[#9A9A9A]">
               <span>Page</span>
               <input
@@ -211,6 +260,52 @@ export default function Viewer() {
             </div>
 
             <div className="flex items-center gap-1.5">
+              {viewMode === 'image' && pageImgUrl && (
+                <div className="hidden sm:flex items-center gap-1 mr-2 px-1.5 py-0.5 rounded-lg bg-[#0D0D0D] border border-[#262626]">
+                  <button
+                    onClick={() => setZoom((z) => Math.max(60, z - 15))}
+                    className="p-1 text-[#9A9A9A] hover:text-white transition"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[11px] font-mono text-white w-10 text-center">{zoom}%</span>
+                  <button
+                    onClick={() => setZoom((z) => Math.min(200, z + 15))}
+                    className="p-1 text-[#9A9A9A] hover:text-white transition"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  {zoom !== 100 && (
+                    <button
+                      onClick={() => setZoom(100)}
+                      className="p-1 text-[#9A9A9A] hover:text-white transition"
+                      title="Reset zoom"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {getPdfUrl(doc) && (
+                <div className="flex items-center rounded-lg bg-[#0D0D0D] border border-[#262626] p-0.5 mr-1 text-[11px]">
+                  <button
+                    onClick={() => setViewMode('image')}
+                    className={`px-2 py-0.5 rounded-md transition ${viewMode === 'image' ? 'bg-[#262626] text-white font-medium' : 'text-[#9A9A9A] hover:text-white'}`}
+                  >
+                    Page
+                  </button>
+                  <button
+                    onClick={() => setViewMode('embed')}
+                    className={`px-2 py-0.5 rounded-md transition ${viewMode === 'embed' ? 'bg-[#262626] text-white font-medium' : 'text-[#9A9A9A] hover:text-white'}`}
+                  >
+                    PDF
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
@@ -229,34 +324,61 @@ export default function Viewer() {
           </div>
 
           {/* PDF Viewer Frame */}
-          <div className="flex-1 bg-[#0D0D0D] p-2 overflow-hidden flex flex-col min-h-0">
-            {!doc ? (
-              <div className="m-auto text-xs text-[#9A9A9A]">No document selected.</div>
-            ) : pdfLoading ? (
-              <div className="m-auto text-xs text-[#9A9A9A]">Loading PDF preview...</div>
-            ) : pdfError ? (
-              <div className="m-auto max-w-sm text-center space-y-3 p-4">
-                <Info className="w-6 h-6 mx-auto text-[#666666]" />
-                <p className="text-xs text-[#9A9A9A] leading-relaxed">{pdfError}</p>
-                <a
-                  href={getPdfUrl(doc)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
-                >
-                  <span>Open Raw PDF</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+          <div className="flex-1 bg-[#0D0D0D] p-3 overflow-auto flex flex-col min-h-0">
+            {!doc || loading ? (
+              <div className="m-auto text-xs text-[#9A9A9A]">
+                {loading ? 'Loading document...' : 'No document selected.'}
               </div>
-            ) : pdfBlobUrl ? (
+            ) : viewMode === 'embed' && pdfBlobUrl ? (
               <iframe
                 key={`${doc.id}-${currentPage}`}
                 src={`${pdfBlobUrl}#page=${currentPage}`}
                 title="PDF Document Viewer"
-                className="w-full h-full rounded-xl border-0 bg-white"
+                className="w-full h-full rounded-xl border-0 bg-white min-h-[420px]"
               />
+            ) : pageLoading ? (
+              <div className="m-auto text-xs text-[#9A9A9A]">Rendering Page {currentPage}...</div>
+            ) : pageImgUrl ? (
+              <div className="mx-auto my-auto flex justify-center w-full">
+                <img
+                  src={pageImgUrl}
+                  alt={`${doc.filename} - Page ${currentPage}`}
+                  style={{ width: `${zoom}%`, maxWidth: zoom <= 100 ? '100%' : 'none' }}
+                  className="rounded-xl shadow-2xl bg-white object-contain select-text"
+                />
+              </div>
             ) : (
-              <div className="m-auto text-xs text-[#9A9A9A]">Preparing PDF preview...</div>
+              <div className="m-auto max-w-lg w-full space-y-4 p-4">
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-[#141414] border border-[#262626] text-xs text-[#9A9A9A]">
+                  <Info className="w-4 h-4 shrink-0 text-[#4F8CFF] mt-0.5" />
+                  <div className="space-y-2 flex-1">
+                    <p className="leading-relaxed">
+                      {pageError || `Showing extracted text for Page ${currentPage}.`}
+                    </p>
+                    {getPdfUrl(doc) && (
+                      <a
+                        href={getPdfUrl(doc)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
+                      >
+                        <span>Open Raw PDF</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+                {pageChunks.length > 0 && (
+                  <div className="p-4 rounded-xl bg-[#141414] border border-[#262626] space-y-2.5 text-xs text-[#E2E8F0] leading-relaxed select-text">
+                    <div className="text-[11px] font-semibold text-[#9A9A9A] uppercase tracking-wider">
+                      Page {currentPage} Extracted Text
+                    </div>
+                    {pageChunks.map((c, idx) => (
+                      <p key={idx} className="whitespace-pre-wrap">{c.text}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
