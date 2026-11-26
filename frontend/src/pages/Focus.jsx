@@ -13,13 +13,14 @@ import {
   Sliders,
   Flame
 } from 'lucide-react';
+import { dashboardApi } from '../services/api';
 
 export default function Focus() {
   const [mode, setMode] = useState('focus');
   const [secondsLeft, setSecondsLeft] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [completedSessions, setCompletedSessions] = useState(() => {
-    return parseInt(localStorage.getItem('studymind_focus_sessions') || '3', 10);
+    return parseInt(localStorage.getItem('studymind_focus_sessions') || '0', 10);
   });
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -50,6 +51,11 @@ export default function Focus() {
       const updated = completedSessions + 1;
       setCompletedSessions(updated);
       localStorage.setItem('studymind_focus_sessions', String(updated));
+      dashboardApi.logActivity({
+        activity_type: 'focus',
+        subject: mode === 'deep' ? 'Deep Work (50m)' : 'Pomodoro Focus (25m)',
+        duration_seconds: mode === 'deep' ? 50 * 60 : 25 * 60,
+      });
       alert('🎉 Focus Session Completed! Take a refreshing break.');
     } else {
       alert('⏰ Break is over! Ready to resume studying?');

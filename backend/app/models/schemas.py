@@ -176,6 +176,14 @@ class DashboardStatsResponse(BaseModel):
     llm_configured: bool
     llm_model: str
 
+class StudyActivityCreate(BaseModel):
+    activity_type: str  # "quiz", "flashcard", "focus", "study_tool"
+    document_id: Optional[str] = None
+    subject: Optional[str] = None
+    score: int = 0
+    total: int = 0
+    duration_seconds: int = 0
+
 # --- Study Tools Schemas ---
 class StudySummaryRequest(BaseModel):
     document_id: str

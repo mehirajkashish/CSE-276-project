@@ -1,8 +1,10 @@
-import random
+import hashlib
+import hmac
+import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     hash_password,
@@ -10,7 +12,7 @@ from app.core.security import (
     create_access_token,
     get_current_user
 )
-from app.models.db_models import User
+from app.models.db_models import User, PasswordResetCode
 from app.models.schemas import (
     UserRegisterRequest,
     UserLoginRequest,
@@ -21,11 +23,25 @@ from app.models.schemas import (
     UserResponse,
     AuthTokenResponse
 )
+from app.services.email_service import email_service, EmailNotConfiguredError
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# In-memory storage for password reset verification codes
-RESET_CODES: Dict[str, Dict[str, Any]] = {}
+MAX_RESET_ATTEMPTS = 5
+RESET_CODE_TTL_MINUTES = 15
+
+
+def _hash_reset_code(email: str, code: str) -> str:
+    """Hash reset OTP with JWT secret so raw codes are never stored in the database."""
+    secret = (settings.jwt_secret or "studymind").encode("utf-8")
+    msg = f"{email.lower().strip()}:{code.strip()}".encode("utf-8")
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 @router.post("/register", response_model=AuthTokenResponse, status_code=status.HTTP_201_CREATED)
 def register(req: UserRegisterRequest, db: Session = Depends(get_db)):
@@ -156,120 +172,140 @@ def update_profile(
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     """
-    Initiates password reset by verifying email and generating a 6-digit verification code.
-    Valid for 15 minutes.
+    Initiates password reset by emailing a cryptographically random 6-digit code.
+    Never exposes the reset code in API responses or prevents user enumeration.
     """
     clean_email = req.email.lower().strip()
-    user = db.query(User).filter(User.email == clean_email).first()
-    if not user:
+    if not email_service.is_configured():
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No registered account found with this email address."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Password reset email delivery is not configured on this server. "
+                "Configure RESEND_API_KEY or SMTP_HOST/SMTP_USER/SMTP_PASSWORD to send verification emails."
+            ),
         )
 
-    # Generate 6-digit code
-    code = f"{random.randint(100000, 999999)}"
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
-    RESET_CODES[clean_email] = {
-        "code": code,
-        "expires_at": expires_at
-    }
+    user = db.query(User).filter(User.email == clean_email).first()
+    if user:
+        code = f"{secrets.randbelow(900000) + 100000}"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_CODE_TTL_MINUTES)
+        code_hash = _hash_reset_code(clean_email, code)
+
+        existing = db.query(PasswordResetCode).filter(PasswordResetCode.email == clean_email).first()
+        if existing:
+            existing.code_hash = code_hash
+            existing.expires_at = expires_at
+            existing.attempts = 0
+            existing.created_at = datetime.now(timezone.utc)
+        else:
+            db.add(
+                PasswordResetCode(
+                    email=clean_email,
+                    code_hash=code_hash,
+                    expires_at=expires_at,
+                    attempts=0,
+                )
+            )
+        db.commit()
+
+        try:
+            email_service.send_password_reset_code(clean_email, code, expires_minutes=RESET_CODE_TTL_MINUTES)
+        except EmailNotConfiguredError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Could not deliver verification email: {exc}",
+            )
 
     return {
         "status": "success",
-        "message": f"Verification code sent to {clean_email}.",
+        "message": f"If an account exists for {clean_email}, a 6-digit verification code has been sent to your inbox.",
         "email": clean_email,
-        "reset_code": code,  # Provided for local/student testability
-        "expires_in_minutes": 15
+        "expires_in_minutes": RESET_CODE_TTL_MINUTES,
     }
 
-@router.post("/verify-reset-code")
-def verify_reset_code(req: ForgotPasswordVerifyRequest):
-    """
-    Validates whether the 6-digit verification code is correct and not expired.
-    """
-    clean_email = req.email.lower().strip()
-    entry = RESET_CODES.get(clean_email)
+
+def _validate_and_consume_entry(db: Session, clean_email: str, raw_code: str, consume: bool) -> None:
+    entry = db.query(PasswordResetCode).filter(PasswordResetCode.email == clean_email).first()
     if not entry:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No password reset request found for this email. Please request a new code."
+            detail="No active password reset request found for this email. Please request a new code.",
         )
 
-    if datetime.now(timezone.utc) > entry["expires_at"]:
-        del RESET_CODES[clean_email]
+    if datetime.now(timezone.utc) > _as_utc(entry.expires_at):
+        db.delete(entry)
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code has expired. Please request a new one."
+            detail="Verification code has expired. Please request a new one.",
         )
 
-    if req.reset_code.strip() != entry["code"]:
+    if entry.attempts >= MAX_RESET_ATTEMPTS:
+        db.delete(entry)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many invalid code attempts. Please request a new verification code.",
+        )
+
+    expected_hash = _hash_reset_code(clean_email, raw_code)
+    if not hmac.compare_digest(expected_hash, entry.code_hash):
+        entry.attempts += 1
+        db.commit()
+        remaining = max(0, MAX_RESET_ATTEMPTS - entry.attempts)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid 6-digit verification code. Please check and try again."
+            detail=f"Invalid verification code ({remaining} attempts remaining).",
         )
 
+    if consume:
+        db.delete(entry)
+        db.commit()
+
+
+@router.post("/verify-reset-code")
+def verify_reset_code(req: ForgotPasswordVerifyRequest, db: Session = Depends(get_db)):
+    """Validates whether the 6-digit verification code is correct, unexpired, and within attempt limits."""
+    clean_email = req.email.lower().strip()
+    _validate_and_consume_entry(db, clean_email, req.reset_code, consume=False)
     return {
         "status": "success",
         "valid": True,
-        "message": "Verification code is valid."
+        "message": "Verification code is valid.",
     }
+
 
 @router.post("/reset-password")
 def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
-    """
-    Resets the user's password after verifying the 6-digit code.
-    """
+    """Resets the user's password after verifying the emailed 6-digit code."""
     clean_email = req.email.lower().strip()
-    
-    # 1. Check passwords
+
     if req.new_password != req.confirm_new_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New passwords do not match."
+            detail="New passwords do not match.",
         )
     if len(req.new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must be at least 6 characters long."
+            detail="Password must be at least 6 characters long.",
         )
 
-    # 2. Check reset code
-    entry = RESET_CODES.get(clean_email)
-    if not entry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No active password reset found. Please request a new code."
-        )
+    _validate_and_consume_entry(db, clean_email, req.reset_code, consume=True)
 
-    if datetime.now(timezone.utc) > entry["expires_at"]:
-        del RESET_CODES[clean_email]
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code has expired. Please request a new code."
-        )
-
-    if req.reset_code.strip() != entry["code"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid verification code. Please try again."
-        )
-
-    # 3. Update user password in database
     user = db.query(User).filter(User.email == clean_email).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User account not found."
+            detail="User account not found.",
         )
 
     user.hashed_password = hash_password(req.new_password)
     db.commit()
 
-    # Clear used reset code
-    del RESET_CODES[clean_email]
-
     return {
         "status": "success",
-        "message": "Your password has been reset successfully! You can now sign in with your new password."
+        "message": "Your password has been reset successfully! You can now sign in with your new password.",
     }

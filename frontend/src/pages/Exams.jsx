@@ -20,7 +20,7 @@ import {
   BarChart3,
   Lightbulb
 } from 'lucide-react';
-import { documentApi, studyApi } from '../services/api';
+import { documentApi, studyApi, dashboardApi } from '../services/api';
 import { DEMO_QUIZ } from '../services/demoData';
 
 export default function Exams() {
@@ -135,6 +135,17 @@ export default function Exams() {
   const handleSubmitExam = () => {
     setShowConfirmModal(false);
     setIsSubmitted(true);
+    const stats = calculateScore();
+    const docObj = documents.find((d) => d.id === selectedDocId);
+    const elapsedSecs = Math.max(0, questionCount * 120 - secondsRemaining);
+    dashboardApi.logActivity({
+      activity_type: 'quiz',
+      document_id: selectedDocId || null,
+      subject: docObj?.filename || 'Exam Simulator',
+      score: stats.correct,
+      total: stats.maxScore,
+      duration_seconds: timedMode ? elapsedSecs : 0,
+    });
   };
 
   const calculateScore = () => {

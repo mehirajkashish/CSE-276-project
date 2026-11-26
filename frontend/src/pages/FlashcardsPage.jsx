@@ -17,7 +17,7 @@ import {
   CheckCircle2,
   Volume2
 } from 'lucide-react';
-import { documentApi, studyApi } from '../services/api';
+import { documentApi, studyApi, dashboardApi } from '../services/api';
 import { DEMO_FLASHCARDS } from '../services/demoData';
 
 export default function FlashcardsPage() {
@@ -87,6 +87,14 @@ export default function FlashcardsPage() {
       ...prev,
       [currentIdx]: isKnown,
     }));
+    const docObj = documents.find((d) => d.id === selectedDocId);
+    dashboardApi.logActivity({
+      activity_type: 'flashcard',
+      document_id: selectedDocId || null,
+      subject: docObj?.filename || 'Flashcards',
+      score: isKnown ? 1 : 0,
+      total: 1,
+    });
     if (currentIdx < flashcards.length - 1) {
       setIsFlipped(false);
       setTimeout(() => setCurrentIdx((prev) => prev + 1), 150);

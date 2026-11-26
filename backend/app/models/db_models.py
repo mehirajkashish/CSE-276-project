@@ -19,6 +19,7 @@ class User(Base):
     # Relationships
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
     conversations = relationship("ChatConversation", back_populates="user", cascade="all, delete-orphan")
+    study_activities = relationship("StudyActivity", back_populates="user", cascade="all, delete-orphan")
 
 class Document(Base):
     __tablename__ = "documents"
@@ -62,3 +63,30 @@ class ChatMessage(Base):
 
     # Relationships
     conversation = relationship("ChatConversation", back_populates="messages")
+
+
+class StudyActivity(Base):
+    __tablename__ = "study_activities"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(String(36), nullable=True, index=True)
+    subject = Column(String(255), nullable=True)
+    activity_type = Column(String(40), nullable=False, index=True)  # "quiz", "flashcard", "focus", "study_tool"
+    score = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    duration_seconds = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utc_now, index=True)
+
+    # Relationships
+    user = relationship("User", back_populates="study_activities")
+
+
+class PasswordResetCode(Base):
+    __tablename__ = "password_reset_codes"
+
+    email = Column(String(255), primary_key=True, index=True)
+    code_hash = Column(String(128), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utc_now)

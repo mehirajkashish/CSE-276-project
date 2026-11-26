@@ -34,7 +34,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import RichMarkdown from '../components/RichMarkdown';
-import { studyApi, documentApi, chatApi } from '../services/api';
+import { studyApi, documentApi, chatApi, dashboardApi } from '../services/api';
 
 const TOOLKIT_CARDS = [
   {
@@ -150,6 +150,7 @@ export default function StudyTools() {
   const [error, setError] = useState(null);
   const [aiMeta, setAiMeta] = useState({ aiGenerated: null, modelUsed: null });
   const [copied, setCopied] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   /* ── Tool-specific interactive state ── */
   const [notesDepth, setNotesDepth] = useState('comprehensive');
@@ -535,6 +536,106 @@ export default function StudyTools() {
     ].join('\n');
   };
 
+  const buildToolExportMarkdown = () => {
+    if (toolId === 'notes') return notesData?.notes || '';
+    if (toolId === 'summary') return summaryData?.summary || '';
+    if (toolId === 'coding') return codingResult?.content || '';
+    if (toolId === 'revision') return buildRevisionMarkdown();
+    if (toolId === 'mcq' && quizData.length > 0) {
+      return quizData
+        .map((q, idx) => {
+          const opts = (q.options || []).map((o) => `- **${o.id}.** ${o.text}`).join('\n');
+          return `### Question ${idx + 1} (Page ${q.page_number || 1})\n${q.question}\n\n${opts}\n\n> **Answer:** ${q.correct_option_id} — ${q.explanation || ''}`;
+        })
+        .join('\n\n---\n\n');
+    }
+    if (toolId === 'flashcards' && flashcardsData.length > 0) {
+      return flashcardsData
+        .map(
+          (fc, idx) =>
+            `### Card ${idx + 1}: ${fc.key_concept || 'Concept'} (Page ${fc.page_number || 1})\n**Q:** ${fc.question}\n\n**A:** ${fc.answer}`
+        )
+        .join('\n\n---\n\n');
+    }
+    if (toolId === 'topics' && topicsData.length > 0) {
+      return topicsData
+        .map(
+          (t, idx) =>
+            `### ${idx + 1}. ${t.title} [${t.importance || 'Medium'} Priority · Page ${t.page_number || 1}]\n${t.summary || ''}`
+        )
+        .join('\n\n');
+    }
+    if (toolId === 'mindmap' && mindMapData?.mind_map) {
+      const branches = (mindMapData.mind_map.children || [])
+        .map((b) => {
+          const subs = (b.children || [])
+            .map((s) => `- **${s.name}**${s.note ? `: ${s.note}` : ''}`)
+            .join('\n');
+          return `## ${b.name}\n${subs}`;
+        })
+        .join('\n\n');
+      return `# ${mindMapData.root_topic || 'Concept Mind Map'}\n\n${branches}`;
+    }
+    if (toolId === 'practice' && practiceData.length > 0) {
+      return practiceData
+        .map((p, idx) => {
+          const draft = practiceDrafts[idx]?.trim() ? `\n\n**My Draft Answer:**\n${practiceDrafts[idx].trim()}` : '';
+          return `### Problem ${idx + 1}: ${p.type} (${p.difficulty || 'Medium'} · Page ${p.page || 1})\n${p.question}${draft}\n\n> **Model Solution:** ${p.solution}`;
+        })
+        .join('\n\n---\n\n');
+    }
+    if (toolId === 'paper' && paperData?.sections) {
+      const hdr = `# ${paperData.title}\n**Time:** ${paperData.time_allowed || '2 Hours'} | **Total Marks:** ${paperData.total_marks || 60}\n`;
+      const secs = paperData.sections
+        .map((s) => {
+          const qs = (s.questions || [])
+            .map((q, qi) => {
+              const hint = showPaperHints && s.answer_hints?.[qi] ? `\n  - *Marking Hint:* ${s.answer_hints[qi]}` : '';
+              return `${q}${hint}`;
+            })
+            .join('\n');
+          return `## ${s.section}\n*${s.instructions || ''}*\n\n${qs}`;
+        })
+        .join('\n\n');
+      return `${hdr}\n${secs}`;
+    }
+    return '';
+  };
+
+  const exportMarkdownText = buildToolExportMarkdown();
+
+  const handleDownloadPdf = async () => {
+    if (!exportMarkdownText || exportingPdf) return;
+    setExportingPdf(true);
+    setError(null);
+    const sourceName = (selectedDocObj?.filename || codingTopic || 'StudyMind').replace(/\.pdf$/i, '');
+    const title = `${activeToolMeta.title} — ${sourceName}`;
+    const subtitle = `${selectedDocObj?.filename || 'General CS'}${aiMeta.modelUsed ? ` · Model: ${aiMeta.modelUsed}` : ''}`;
+    const outName = `${sourceName}_${activeToolMeta.id}.pdf`;
+
+    try {
+      const blob = await studyApi.exportPdf({
+        title,
+        subtitle,
+        filename: outName,
+        markdown: exportMarkdownText,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // Fallback for demo mode / offline browser print-to-PDF
+      window.print();
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-5 pb-20 animate-fade-in-up">
       {/* ── Dedicated Tool Header ── */}
@@ -578,7 +679,17 @@ export default function StudyTools() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={loading || exportingPdf || !exportMarkdownText}
+              title="Download formatted PDF of this tool's result"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1A1A1A] hover:bg-[#242424] border border-[#262626] text-xs font-medium text-[#E5E5E5] hover:text-white transition disabled:opacity-40"
+            >
+              {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span>{exportingPdf ? 'Exporting…' : 'Download PDF'}</span>
+            </button>
             <button
               type="button"
               onClick={() => navigate(selectedDocId ? `/chat?doc=${selectedDocId}` : '/chat')}
@@ -847,7 +958,18 @@ export default function StudyTools() {
                               <button
                                 key={opt.id}
                                 type="button"
-                                onClick={() => setUserAnswers((prev) => ({ ...prev, [idx]: opt.id }))}
+                                onClick={() => {
+                                  if (!userAnswers[idx]) {
+                                    dashboardApi.logActivity({
+                                      activity_type: 'quiz',
+                                      document_id: selectedDocId || null,
+                                      subject: selectedDocObj?.filename || 'Toolkit Quiz',
+                                      score: opt.id === q.correct_option_id ? 1 : 0,
+                                      total: 1,
+                                    });
+                                  }
+                                  setUserAnswers((prev) => ({ ...prev, [idx]: opt.id }));
+                                }}
                                 className={`w-full p-3 rounded-xl border text-left text-xs transition flex items-center justify-between gap-2 ${cls}`}
                               >
                                 <span className="flex items-start gap-2">
@@ -967,6 +1089,15 @@ export default function StudyTools() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (!cardMastery[currentCardIdx]) {
+                              dashboardApi.logActivity({
+                                activity_type: 'flashcard',
+                                document_id: selectedDocId || null,
+                                subject: selectedDocObj?.filename || 'Toolkit Flashcards',
+                                score: 0,
+                                total: 1,
+                              });
+                            }
                             setCardMastery((m) => ({ ...m, [currentCardIdx]: 'review' }));
                             if (currentCardIdx < flashcardsData.length - 1) {
                               setCurrentCardIdx((i) => i + 1);
@@ -984,6 +1115,15 @@ export default function StudyTools() {
                         <button
                           type="button"
                           onClick={() => {
+                            if (!cardMastery[currentCardIdx]) {
+                              dashboardApi.logActivity({
+                                activity_type: 'flashcard',
+                                document_id: selectedDocId || null,
+                                subject: selectedDocObj?.filename || 'Toolkit Flashcards',
+                                score: 1,
+                                total: 1,
+                              });
+                            }
                             setCardMastery((m) => ({ ...m, [currentCardIdx]: 'known' }));
                             if (currentCardIdx < flashcardsData.length - 1) {
                               setCurrentCardIdx((i) => i + 1);

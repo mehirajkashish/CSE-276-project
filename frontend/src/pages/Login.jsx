@@ -59,7 +59,6 @@ export default function Login() {
   // Forgot password specific states
   const [forgotStep, setForgotStep] = useState(1); // 1 = enter email, 2 = enter code & new pass
   const [resetCode, setResetCode] = useState('');
-  const [sentResetCode, setSentResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -285,26 +284,13 @@ export default function Login() {
     setIsLoading(true);
     try {
       const res = await authApi.forgotPassword({ email: email.trim() });
-      const generatedCode = res.reset_code || '849201';
-      setSentResetCode(generatedCode);
-      setResetCode(generatedCode);
+      setResetCode('');
       setForgotStep(2);
       setSuccessMessage(
-        res.reset_code
-          ? `Verification code generated for ${email.trim()}! Code: ${res.reset_code}`
-          : `Verification code sent to ${email.trim()}! Please check your inbox.`
+        res?.message || `Verification code sent to ${email.trim()}. Check your inbox (and spam folder).`
       );
     } catch (err) {
-      if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString();
-        setSentResetCode(fallbackCode);
-        setResetCode(fallbackCode);
-        setForgotStep(2);
-        setSuccessMessage(`Verification code generated for ${email.trim()}! Code: ${fallbackCode}`);
-      } else {
-        const detail = err.response?.data?.detail;
-        setErrorMessage(detail || err.message || 'Failed to request reset code. Please check your email.');
-      }
+      setErrorMessage(formatAuthConnectionError(err, 'password reset'));
     } finally {
       setIsLoading(false);
     }
@@ -346,18 +332,7 @@ export default function Login() {
       setConfirmNewPassword('');
       setSuccessMessage('Password reset successfully! Please sign in with your new password.');
     } catch (err) {
-      if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        setAuthMode('login');
-        setPassword(newPassword);
-        setForgotStep(1);
-        setResetCode('');
-        setNewPassword('');
-        setConfirmNewPassword('');
-        setSuccessMessage('Password updated successfully! Please sign in.');
-      } else {
-        const detail = err.response?.data?.detail;
-        setErrorMessage(detail || err.message || 'Failed to reset password. Please check your verification code.');
-      }
+      setErrorMessage(formatAuthConnectionError(err, 'password reset'));
     } finally {
       setIsLoading(false);
     }
@@ -741,13 +716,16 @@ export default function Login() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-medium text-[#9A9A9A]">
-                        6-Digit Verification Code
+                        6-Digit Verification Code (Check Email)
                       </label>
-                      {sentResetCode && (
-                        <span className="text-[11px] font-mono text-emerald-400">
-                          Code: {sentResetCode}
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={handleRequestResetCode}
+                        disabled={isLoading}
+                        className="text-[11px] font-medium text-[#9A9A9A] hover:text-white underline transition disabled:opacity-40"
+                      >
+                        Resend code
+                      </button>
                     </div>
                     <div className="relative">
                       <input

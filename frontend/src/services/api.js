@@ -254,71 +254,31 @@ export const authApi = {
 
   forgotPassword: async ({ email }) => {
     if (isDemo()) {
-      return {
-        status: 'success',
-        message: `Verification code sent to ${email}.`,
-        email,
-        reset_code: '849201',
-        expires_in_minutes: 15,
-      };
+      throw new Error('Password reset is unavailable in Demo Mode. Sign out of Demo Mode to reset a real account password.');
     }
-    try {
-      const response = await api.post('/auth/forgot-password', { email });
-      return response.data;
-    } catch (err) {
-      if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString();
-        return {
-          status: 'success',
-          message: `Verification code sent to ${email}.`,
-          email,
-          reset_code: fallbackCode,
-          expires_in_minutes: 15,
-        };
-      }
-      throw err;
-    }
+    const response = await api.post('/auth/forgot-password', { email });
+    return response.data;
   },
 
   verifyResetCode: async ({ email, reset_code }) => {
     if (isDemo()) {
-      return { status: 'success', valid: true, message: 'Verification code is valid.' };
+      throw new Error('Password reset is unavailable in Demo Mode.');
     }
-    try {
-      const response = await api.post('/auth/verify-reset-code', { email, reset_code });
-      return response.data;
-    } catch (err) {
-      if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        return { status: 'success', valid: true, message: 'Verification code is valid.' };
-      }
-      throw err;
-    }
+    const response = await api.post('/auth/verify-reset-code', { email, reset_code });
+    return response.data;
   },
 
   resetPassword: async ({ email, reset_code, new_password, confirm_new_password }) => {
     if (isDemo()) {
-      return {
-        status: 'success',
-        message: 'Your password has been reset successfully! You can now sign in with your new password.',
-      };
+      throw new Error('Password reset is unavailable in Demo Mode.');
     }
-    try {
-      const response = await api.post('/auth/reset-password', {
-        email,
-        reset_code,
-        new_password,
-        confirm_new_password,
-      });
-      return response.data;
-    } catch (err) {
-      if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
-        return {
-          status: 'success',
-          message: 'Your password has been reset successfully! You can now sign in with your new password.',
-        };
-      }
-      throw err;
-    }
+    const response = await api.post('/auth/reset-password', {
+      email,
+      reset_code,
+      new_password,
+      confirm_new_password,
+    });
+    return response.data;
   },
 };
 
@@ -800,6 +760,64 @@ export const dashboardApi = {
     const response = await api.get('/dashboard/stats');
     return response.data;
   },
+
+  getAnalytics: async (period = '7d') => {
+    if (isDemo()) {
+      return {
+        period,
+        study_streak_days: 3,
+        active_days_this_week: 3,
+        streak_delta: 1,
+        total_documents: dynamicDemoDocs.length,
+        total_chunks: dynamicDemoDocs.reduce((acc, d) => acc + (d.total_chunks || 0), 0),
+        total_questions_solved: 6,
+        chat_questions_count: 4,
+        quiz_questions_count: 2,
+        mcq_accuracy_pct: 80,
+        focus_hours: 1.5,
+        focus_sessions_count: 3,
+        daily_avg_hours: 0.5,
+        weekly_activity: [
+          { day: 'Mon', hours: 0, queries: 1 },
+          { day: 'Tue', hours: 0.5, queries: 2 },
+          { day: 'Wed', hours: 0, queries: 0 },
+          { day: 'Thu', hours: 0.5, queries: 1 },
+          { day: 'Fri', hours: 0, queries: 1 },
+          { day: 'Sat', hours: 0.5, queries: 1 },
+          { day: 'Sun', hours: 0, queries: 0 },
+        ],
+        subject_performance: dynamicDemoDocs.slice(0, 4).map((d) => ({
+          subject: d.filename,
+          document_id: d.id,
+          accuracy: 80,
+          assessed_count: 5,
+          chat_citations: 2,
+          tool_runs: 1,
+          status: 'Proficient',
+          has_quiz_data: true,
+        })),
+      };
+    }
+    const response = await api.get(`/dashboard/analytics?period=${encodeURIComponent(period)}`);
+    return response.data;
+  },
+
+  logActivity: async ({ activity_type, document_id = null, subject = null, score = 0, total = 0, duration_seconds = 0 }) => {
+    if (isDemo()) return { status: 'demo' };
+    try {
+      const response = await api.post('/dashboard/activity', {
+        activity_type,
+        document_id,
+        subject,
+        score,
+        total,
+        duration_seconds,
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  },
 };
 
 // --- Study Toolkit API ---
@@ -998,6 +1016,15 @@ export const studyApi = {
       };
     }
     const response = await api.post('/study/question-paper', { document_id, focus, model });
+    return response.data;
+  },
+
+  exportPdf: async ({ title, subtitle = null, filename = null, markdown }) => {
+    const response = await api.post(
+      '/study/export-pdf',
+      { title, subtitle, filename, markdown },
+      { responseType: 'blob' }
+    );
     return response.data;
   },
 };

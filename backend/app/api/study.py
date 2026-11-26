@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+import re
+from fastapi import APIRouter, HTTPException, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,6 +11,7 @@ from app.models.schemas import (
     ImportantTopicsResponse
 )
 from app.services.study_service import study_service
+from app.services.pdf_export_service import render_markdown_to_pdf_bytes
 
 router = APIRouter(prefix="/study", tags=["Study Tools"])
 
@@ -194,3 +196,28 @@ def generate_question_paper(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/export-pdf")
+def export_study_pdf(
+    data: dict,
+    current_user: User = Depends(get_current_user),
+):
+    markdown_text = (data.get("markdown") or "").strip()
+    if not markdown_text:
+        raise HTTPException(status_code=400, detail="markdown content is required.")
+    title = (data.get("title") or "StudyMind AI Study Guide").strip()
+    subtitle = data.get("subtitle")
+    raw_name = (data.get("filename") or title).strip()
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._-") or "studymind-export"
+    if not safe_name.lower().endswith(".pdf"):
+        safe_name += ".pdf"
+    try:
+        pdf_bytes = render_markdown_to_pdf_bytes(title=title, markdown_text=markdown_text, subtitle=subtitle)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF export failed: {e}")
