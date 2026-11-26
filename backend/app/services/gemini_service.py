@@ -96,10 +96,10 @@ CASUAL_CHAT_PATTERNS = [
 class GeminiService:
     FALLBACK_MODELS = [
         "gemini-flash-lite-latest",
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-flash-lite-preview",
         "gemini-flash-latest",
+        "gemini-3-flash-preview",
     ]
 
     def __init__(self):
@@ -303,6 +303,21 @@ class GeminiService:
         contents.append({"role": "user", "parts": [{"text": prompt}]})
         return contents
 
+    def _resolve_model_name(self, requested_model: Optional[str] = None) -> str:
+        clean = (requested_model or "").strip()
+        allowed = {
+            "gemini-flash-lite-latest",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-flash-latest",
+            "gemini-3-flash-preview",
+            "gemini-pro-latest",
+            "gemini-3.1-pro-preview",
+        }
+        if clean and clean in allowed:
+            return clean
+        return settings.gemini_model or self.default_model
+
     def generate_general_academic_answer(
         self,
         question: str,
@@ -310,6 +325,7 @@ class GeminiService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         level: str = "intermediate",
         mode: str = "learn",
+        model: Optional[str] = None,
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -318,7 +334,7 @@ class GeminiService:
         Adapts to casual chat vs explanation depth, smart chat mode, and prior conversation history.
         """
         api_key = settings.gemini_api_key.strip()
-        model_name = settings.gemini_model or self.default_model
+        model_name = self._resolve_model_name(model)
         sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
             question=question,
             user_name=user_name,
@@ -506,6 +522,7 @@ class GeminiService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         level: str = "intermediate",
         mode: str = "learn",
+        model: Optional[str] = None,
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -520,13 +537,14 @@ class GeminiService:
                 conversation_history=conversation_history,
                 level=level,
                 mode=mode,
+                model=model,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
             )
 
         sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
         api_key = settings.gemini_api_key.strip()
-        model_name = settings.gemini_model or self.default_model
+        model_name = self._resolve_model_name(model)
 
         if not api_key:
             synthesized_answer = self._synthesize_local_context(question, citations, level=level, mode=mode)
@@ -700,6 +718,7 @@ class GeminiService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         level: str = "intermediate",
         mode: str = "learn",
+        model: Optional[str] = None,
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Generator[Dict[str, Any], None, None]:
@@ -708,7 +727,7 @@ class GeminiService:
         with graceful chunked local fallback if Gemini is unconfigured or errors before output starts.
         """
         api_key = settings.gemini_api_key.strip()
-        model_name = settings.gemini_model or self.default_model
+        model_name = self._resolve_model_name(model)
         is_casual = False
 
         if citations:

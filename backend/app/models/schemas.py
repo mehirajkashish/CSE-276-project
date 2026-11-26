@@ -90,6 +90,7 @@ class ChatRequest(BaseModel):
     top_k: Optional[int] = 4
     explanation_level: Optional[str] = "intermediate"  # "beginner" | "intermediate" | "advanced"
     mode: Optional[str] = "learn"  # "learn" | "exam" | "practice" | "code" | "research"
+    model: Optional[str] = None
     replace_from_message_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
@@ -120,6 +121,7 @@ class ChatActionRequest(BaseModel):
     document_ids: Optional[List[str]] = Field(default_factory=list)
     explanation_level: Optional[str] = "intermediate"
     mode: Optional[str] = "learn"
+    model: Optional[str] = None
 
 class MessageResponse(BaseModel):
     id: str

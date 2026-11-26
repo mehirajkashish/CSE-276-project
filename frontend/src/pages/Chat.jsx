@@ -11,7 +11,7 @@ import {
   UploadCloud, X, GraduationCap, Square, Pencil, Check,
   Search, Code2, FlaskConical, ClipboardList, Compass,
   FileText, PanelLeft, Settings, UserRound, Pin, PinOff,
-  ChevronDown, ArrowUp,
+  ChevronDown, ArrowUp, Cpu,
 } from 'lucide-react';
 import ChatBubble from '../components/ChatBubble';
 import { chatApi, documentApi } from '../services/api';
@@ -30,6 +30,15 @@ const EXPLANATION_LEVELS = [
   { id: 'beginner',     label: 'Beginner',      desc: 'Simple English & basic analogies' },
   { id: 'intermediate', label: 'Intermediate',   desc: 'Detailed academic depth' },
   { id: 'advanced',     label: 'Advanced',       desc: 'Rigorous technical depth' },
+];
+
+const CHAT_MODELS = [
+  { id: 'gemini-flash-lite-latest',      label: 'Flash-Lite Latest',    badge: 'Fast',     desc: 'Fast & reliable default for study & chat' },
+  { id: 'gemini-3.1-flash-lite',         label: 'Gemini 3.1 Flash-Lite', badge: 'Speed',   desc: 'Lightweight 3.1 model for crisp answers' },
+  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Lite Prev', badge: 'Preview',  desc: 'Latest 3.1 Flash-Lite preview release' },
+  { id: 'gemini-flash-latest',           label: 'Gemini Flash Latest',  badge: 'Balanced', desc: 'Richer multi-step reasoning & synthesis' },
+  { id: 'gemini-3-flash-preview',        label: 'Gemini 3 Flash',       badge: 'Next-Gen', desc: 'Next-gen preview for deeper analysis' },
+  { id: 'gemini-pro-latest',             label: 'Gemini Pro Latest',    badge: 'Deep',     desc: 'Complex proofs & code (subject to quota)' },
 ];
 
 const QUICK_PROMPTS = [
@@ -317,7 +326,9 @@ export default function Chat() {
   const [mobileSidebar,   setMobileSidebar]   = useState(false); // mobile overlay
   const [docListOpen,     setDocListOpen]     = useState(false);
   const [docScopeOpen,    setDocScopeOpen]    = useState(false);
-  const docScopeRef = useRef(null);
+  const [modelMenuOpen,   setModelMenuOpen]   = useState(false);
+  const docScopeRef  = useRef(null);
+  const modelMenuRef = useRef(null);
 
   /* ── Conversation state ── */
   const [conversations,        setConversations]        = useState([]);
@@ -338,8 +349,12 @@ export default function Chat() {
   const [error,          setError]          = useState(null);
 
   /* ── Tutor controls ── */
-  const [tutorLevel, setTutorLevel] = useState('intermediate');
-  const [chatMode,   setChatMode]   = useState('learn');
+  const [tutorLevel,    setTutorLevel]    = useState('intermediate');
+  const [chatMode,      setChatMode]      = useState('learn');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    const saved = localStorage.getItem('studymind_chat_model');
+    return CHAT_MODELS.some((m) => m.id === saved) ? saved : 'gemini-flash-lite-latest';
+  });
 
   /* ── Upload ── */
   const [isUploadingChatFile, setIsUploadingChatFile] = useState(false);
@@ -362,9 +377,16 @@ export default function Chat() {
   }, [pinnedIds]);
 
   useEffect(() => {
+    localStorage.setItem('studymind_chat_model', selectedModel);
+  }, [selectedModel]);
+
+  useEffect(() => {
     const onDocClick = (e) => {
       if (docScopeRef.current && !docScopeRef.current.contains(e.target)) {
         setDocScopeOpen(false);
+      }
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
+        setModelMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -543,6 +565,7 @@ export default function Chat() {
         top_k: chatMode === 'research' ? 6 : 4,
         mode: chatMode,
         explanation_level: tutorLevel,
+        model: selectedModel,
         replace_from_message_id: replaceFromMessageId,
         signal: ctrl.signal,
         onMeta: (meta) => {
@@ -587,7 +610,7 @@ export default function Chat() {
     if (loading || isStreaming) return;
     setError(null); setLoading(true);
     try {
-      const res = await chatApi.runContextualAction({ action_type: actionType, conversation_id: activeConversationId, message_id: refMessage?.id || null, document_ids: selectedDocIds, explanation_level: actionType === 'explain_simpler' ? 'beginner' : tutorLevel, mode: chatMode });
+      const res = await chatApi.runContextualAction({ action_type: actionType, conversation_id: activeConversationId, message_id: refMessage?.id || null, document_ids: selectedDocIds, explanation_level: actionType === 'explain_simpler' ? 'beginner' : tutorLevel, mode: chatMode, model: selectedModel });
       const labels = { explain_simpler: 'Explain simpler', example: 'Give a worked example', summarize: 'Summarize key takeaways', mcqs: 'Generate practice MCQs', flashcards: 'Create flashcards', practice_questions: 'Give practice questions' };
       const now = new Date().toISOString();
       setMessages((prev) => [...(Array.isArray(prev) ? prev : []),
@@ -671,8 +694,9 @@ export default function Chat() {
     return { pinned: [], unpinned: list };
   }, [conversations, threadSearch, pinnedIds]);
 
-  const activeModeObj = CHAT_MODES.find((m) => m.id === chatMode) || CHAT_MODES[0];
-  const safeMessages  = Array.isArray(messages) ? messages : [];
+  const activeModeObj  = CHAT_MODES.find((m) => m.id === chatMode) || CHAT_MODES[0];
+  const activeModelObj = CHAT_MODELS.find((m) => m.id === selectedModel) || CHAT_MODELS[0];
+  const safeMessages   = Array.isArray(messages) ? messages : [];
 
   const sidebarProps = {
     onNewConversation: handleNewConversation,
@@ -931,7 +955,9 @@ export default function Chat() {
 
             {/* Unified Glass Composer Capsule */}
             <div
-              className="relative rounded-[22px] transition-all duration-200 border border-white/[0.1] focus-within:border-[#4F8CFF]/50 focus-within:shadow-[0_12px_48px_rgba(79,140,255,0.12)]"
+              className={`relative rounded-[22px] transition-all duration-300 border focus-within:border-[#4F8CFF]/55 focus-within:shadow-[0_14px_52px_rgba(79,140,255,0.16)] ${
+                isStreaming || loading ? 'composer-streaming-glow border-[#4F8CFF]/40' : 'border-white/[0.1]'
+              }`}
               style={{
                 background: 'rgba(19, 30, 50, 0.84)',
                 backdropFilter: 'blur(24px)',
@@ -939,16 +965,26 @@ export default function Chat() {
                 boxShadow: '0 10px 40px rgba(0, 0, 0, 0.45)',
               }}
             >
+              {/* Animated Top Shimmer Bar while Generating */}
+              {(isStreaming || loading) && (
+                <div className="absolute top-0 inset-x-5 h-[2px] overflow-hidden rounded-full pointer-events-none">
+                  <div
+                    className="h-full w-1/2 animate-shimmer-slide rounded-full"
+                    style={{ background: 'linear-gradient(90deg, transparent, #4F8CFF, #8B7CFF, transparent)' }}
+                  />
+                </div>
+              )}
+
               {/* Selected PDF filter pills (only when narrowed to specific docs) */}
               {selectedDocIds.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-0.5">
+                <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-0.5 animate-fade-in-up">
                   {selectedDocIds.map((id) => {
                     const docObj = documents.find((d) => d.id === id);
                     if (!docObj) return null;
                     return (
                       <span
                         key={id}
-                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg text-[11px] font-medium text-[#C4B5FD]"
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg text-[11px] font-medium text-[#C4B5FD] transition-transform hover:scale-[1.02]"
                         style={{ background: 'rgba(139,124,255,0.14)', border: '1px solid rgba(139,124,255,0.28)' }}
                       >
                         <FileText className="w-3 h-3 text-[#8B7CFF] shrink-0" />
@@ -974,9 +1010,9 @@ export default function Chat() {
                 value={inputQuestion}
                 onChange={(e) => { setInputQuestion(e.target.value); autoResize(); }}
                 onKeyDown={handleKeyDown}
-                placeholder={isListening ? '🎤 Listening for your voice…' : `Message StudyMind AI… (${activeModeObj.label} mode)`}
+                placeholder={isListening ? '🎤 Listening for your voice…' : `Message StudyMind AI… (${activeModeObj.label} · ${activeModelObj.label})`}
                 disabled={loading}
-                className="w-full bg-transparent border-0 text-[14.5px] text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none px-4 pt-3.5 pb-2 leading-relaxed"
+                className="w-full bg-transparent border-0 text-[14.5px] text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none px-4 pt-3.5 pb-2 leading-relaxed transition-colors"
                 style={{ minHeight: '46px', maxHeight: '180px' }}
               />
 
@@ -989,7 +1025,7 @@ export default function Chat() {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isUploadingChatFile}
                     title="Attach PDF to knowledge base"
-                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-[#94A3B8] hover:text-[#F1F5FC] transition disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-[#94A3B8] hover:text-[#F1F5FC] hover:scale-[1.03] active:scale-95 transition-all duration-200 disabled:opacity-40"
                     style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
                   >
                     {isUploadingChatFile ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4F8CFF]" /> : <Paperclip className="w-3.5 h-3.5 text-[#4F8CFF]" />}
@@ -1001,7 +1037,7 @@ export default function Chat() {
                     type="button"
                     onClick={toggleVoice}
                     title={isListening ? 'Stop listening' : 'Voice input'}
-                    className={`inline-flex items-center justify-center w-8 h-8 rounded-xl transition ${isListening ? 'animate-pulse' : ''}`}
+                    className={`inline-flex items-center justify-center w-8 h-8 rounded-xl hover:scale-[1.04] active:scale-95 transition-all duration-200 ${isListening ? 'animate-pulse' : ''}`}
                     style={{
                       background: isListening ? 'rgba(239,68,68,0.16)' : 'rgba(255,255,255,0.04)',
                       border: isListening ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.07)',
@@ -1024,9 +1060,9 @@ export default function Chat() {
                           type="button"
                           onClick={() => setTutorLevel(lvl.id)}
                           title={lvl.desc}
-                          className="px-2 sm:px-2.5 py-1 rounded-[9px] text-[11px] font-medium transition"
+                          className="px-2 sm:px-2.5 py-1 rounded-[9px] text-[11px] font-medium transition-all duration-200 active:scale-95"
                           style={active
-                            ? { background: 'rgba(139,124,255,0.22)', color: '#E9D5FF', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }
+                            ? { background: 'rgba(139,124,255,0.22)', color: '#E9D5FF', boxShadow: '0 1px 6px rgba(139,124,255,0.2)' }
                             : { color: '#94A3B8' }}
                         >
                           {lvl.label}
@@ -1035,13 +1071,82 @@ export default function Chat() {
                     })}
                   </div>
 
+                  {/* Interactive AI Model Selector */}
+                  <div className="relative" ref={modelMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => { setModelMenuOpen((v) => !v); setDocScopeOpen(false); }}
+                      title={`Active AI model: ${activeModelObj.label} — ${activeModelObj.desc}`}
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
+                      style={{
+                        background: modelMenuOpen ? 'rgba(139,124,255,0.18)' : 'rgba(255,255,255,0.04)',
+                        border: modelMenuOpen ? '1px solid rgba(139,124,255,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        color: '#E2E8F0',
+                      }}
+                    >
+                      <Cpu className="w-3.5 h-3.5 text-[#8B7CFF] shrink-0" />
+                      <span className="truncate max-w-[96px] sm:max-w-none">{activeModelObj.label}</span>
+                      <ChevronDown className={`w-3 h-3 text-[#94A3B8] transition-transform duration-200 ${modelMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {modelMenuOpen && (
+                      <div
+                        className="absolute bottom-10 left-0 w-72 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
+                        style={{
+                          background: 'rgba(15, 24, 42, 0.97)',
+                          backdropFilter: 'blur(22px)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: '0 18px 50px rgba(0,0,0,0.68)',
+                        }}
+                      >
+                        <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
+                          Select Gemini Model
+                        </div>
+                        {CHAT_MODELS.map((m) => {
+                          const isCurrent = selectedModel === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false); }}
+                              className="w-full flex items-start justify-between gap-2 px-2.5 py-2 rounded-xl text-left transition-all duration-150 hover:bg-white/[0.04]"
+                              style={{
+                                background: isCurrent ? 'rgba(139,124,255,0.14)' : 'transparent',
+                                border: isCurrent ? '1px solid rgba(139,124,255,0.28)' : '1px solid transparent',
+                              }}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-xs font-semibold ${isCurrent ? 'text-[#F1F5FC]' : 'text-[#CBD5E1]'}`}>
+                                    {m.label}
+                                  </span>
+                                  <span
+                                    className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-md"
+                                    style={{
+                                      background: isCurrent ? 'rgba(79,140,255,0.2)' : 'rgba(255,255,255,0.06)',
+                                      color: isCurrent ? '#93C5FD' : '#94A3B8',
+                                    }}
+                                  >
+                                    {m.badge}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-[#64748B] mt-0.5 leading-snug">{m.desc}</p>
+                              </div>
+                              {isCurrent && <Check className="w-3.5 h-3.5 text-[#8B7CFF] shrink-0 mt-0.5" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Interactive Document Scope Selector */}
                   <div className="relative" ref={docScopeRef}>
                     <button
                       type="button"
-                      onClick={() => setDocScopeOpen((v) => !v)}
+                      onClick={() => { setDocScopeOpen((v) => !v); setModelMenuOpen(false); }}
                       title="Choose which PDFs to search"
-                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium transition"
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
                       style={{
                         background: selectedDocIds.length > 0 ? 'rgba(79,140,255,0.14)' : 'rgba(255,255,255,0.04)',
                         border: selectedDocIds.length > 0 ? '1px solid rgba(79,140,255,0.3)' : '1px solid rgba(255,255,255,0.07)',
@@ -1052,17 +1157,17 @@ export default function Chat() {
                       <span className="hidden xs:inline sm:inline">
                         {selectedDocIds.length > 0 ? `${selectedDocIds.length} PDF` : `All PDFs (${documents.length})`}
                       </span>
-                      <ChevronDown className={`w-3 h-3 transition-transform ${docScopeOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${docScopeOpen ? 'rotate-180' : ''}`} />
                     </button>
 
                     {docScopeOpen && (
                       <div
-                        className="absolute bottom-10 left-0 w-64 rounded-2xl p-2 z-40 space-y-1 animate-fade-in-up"
+                        className="absolute bottom-10 left-0 w-64 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
                         style={{
-                          background: 'rgba(15, 24, 42, 0.96)',
-                          backdropFilter: 'blur(20px)',
+                          background: 'rgba(15, 24, 42, 0.97)',
+                          backdropFilter: 'blur(22px)',
                           border: '1px solid rgba(255,255,255,0.1)',
-                          boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
+                          boxShadow: '0 18px 50px rgba(0,0,0,0.68)',
                         }}
                       >
                         <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">

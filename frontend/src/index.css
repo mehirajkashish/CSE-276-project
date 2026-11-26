@@ -49,6 +49,35 @@
   animation: fadeInUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* ── Composer popover spring & streaming shimmer animations ── */
+@keyframes composerPop {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-composer-pop {
+  transform-origin: bottom left;
+  animation: composerPop 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes shimmerSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(220%); }
+}
+
+.animate-shimmer-slide {
+  animation: shimmerSlide 1.6s ease-in-out infinite;
+}
+
+@keyframes composerGlowPulse {
+  0%, 100% { box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(79, 140, 255, 0.28); }
+  50%      { box-shadow: 0 12px 46px rgba(79, 140, 255, 0.18), 0 0 0 1px rgba(139, 124, 255, 0.45); }
+}
+
+.composer-streaming-glow {
+  animation: composerGlowPulse 2s ease-in-out infinite;
+}
+
 /* ── Glass surface helper ── */
 .glass-surface {
   background: rgba(17, 28, 46, 0.65);

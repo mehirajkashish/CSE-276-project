@@ -407,6 +407,7 @@ export const chatApi = {
     top_k = 4,
     mode = 'learn',
     explanation_level = 'intermediate',
+    model = null,
     replace_from_message_id = null,
   }) => {
     if (isDemo()) {
@@ -453,7 +454,7 @@ export const chatApi = {
         mode,
         explanation_level,
         sources: demoAnswer.sources,
-        model_used: 'gemini-flash-lite-latest (Demo Mode)',
+        model_used: `${model || 'gemini-flash-lite-latest'} (Demo Mode)`,
       };
     }
 
@@ -464,6 +465,7 @@ export const chatApi = {
       top_k,
       mode,
       explanation_level,
+      ...(model ? { model } : {}),
       replace_from_message_id,
     });
     return response.data;
@@ -476,6 +478,7 @@ export const chatApi = {
     top_k = 4,
     mode = 'learn',
     explanation_level = 'intermediate',
+    model = null,
     replace_from_message_id = null,
     signal,
     onMeta,
@@ -490,6 +493,7 @@ export const chatApi = {
         top_k,
         mode,
         explanation_level,
+        model,
         replace_from_message_id,
       });
       if (onMeta) {
@@ -549,6 +553,7 @@ export const chatApi = {
           top_k,
           mode,
           explanation_level,
+          ...(model ? { model } : {}),
           replace_from_message_id,
         }),
         signal: timeoutController.signal,
@@ -661,6 +666,7 @@ export const chatApi = {
     document_ids = [],
     explanation_level = 'intermediate',
     mode = 'learn',
+    model = null,
   }) => {
     if (isDemo()) {
       return chatApi.sendMessage({
@@ -669,6 +675,7 @@ export const chatApi = {
         document_ids,
         mode,
         explanation_level,
+        model,
       });
     }
     const response = await api.post('/chat/action', {
@@ -678,6 +685,7 @@ export const chatApi = {
       document_ids,
       explanation_level,
       mode,
+      ...(model ? { model } : {}),
     });
     return response.data;
   },

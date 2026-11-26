@@ -232,6 +232,7 @@ def _prepare_chat_context(db: Session, current_user: User, request: ChatRequest)
         "history": history,
         "level": level,
         "mode": mode,
+        "model": (request.model or "").strip() or None,
         "is_greeting": is_greeting,
         "citations": citations,
         "searched_names": searched_names,
@@ -261,6 +262,7 @@ def chat_with_rag(
         conversation_history=ctx["history"],
         level=ctx["level"],
         mode=ctx["mode"],
+        model=ctx["model"],
         strict_doc_missing=ctx["strict_doc_missing"],
         searched_docs=ctx["searched_names"],
     )
@@ -336,6 +338,7 @@ def stream_chat_with_rag(
                 conversation_history=ctx["history"],
                 level=ctx["level"],
                 mode=ctx["mode"],
+                model=ctx["model"],
                 strict_doc_missing=ctx["strict_doc_missing"],
                 searched_docs=ctx["searched_names"],
             ):
@@ -572,6 +575,7 @@ def execute_chat_action(
         conversation_history=history,
         level=target_level,
         mode=target_mode,
+        model=(request.model or "").strip() or None,
         strict_doc_missing=False,
     )
     user_msg, asst_msg = _persist_turn(db, conv.id, user_prompt_label, gen_result["answer"], sources_out)
