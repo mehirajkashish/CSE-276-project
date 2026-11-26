@@ -9,6 +9,18 @@ import {
   generateDemoChatResponse,
 } from './demoData';
 
+export function getBasePath() {
+  const envBase = import.meta.env.BASE_URL;
+  if (envBase && envBase !== './' && envBase !== '/') {
+    return envBase.replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io')) {
+    const firstSeg = window.location.pathname.split('/').filter(Boolean)[0];
+    if (firstSeg) return `/${firstSeg}`;
+  }
+  return '';
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 60000,
@@ -43,8 +55,9 @@ api.interceptors.response.use(
       localStorage.removeItem('studymind_token');
       sessionStorage.removeItem('studymind_token');
       localStorage.removeItem('studymind_user');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      const loginPath = `${getBasePath()}/login`;
+      if (window.location.pathname !== loginPath) {
+        window.location.href = loginPath;
       }
     }
     return Promise.reject(error);

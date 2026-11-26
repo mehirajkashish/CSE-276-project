@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { getBasePath } from './services/api';
 import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import AppLayout from './layouts/AppLayout';
@@ -20,10 +21,7 @@ import Settings from './pages/Settings';
 import ModernDarkApp from './pages/ModernDarkApp';
 
 export default function App() {
-  const routerBasename =
-    import.meta.env.BASE_URL && import.meta.env.BASE_URL !== './'
-      ? import.meta.env.BASE_URL
-      : '/';
+  const routerBasename = getBasePath() || '/';
 
   return (
     <ThemeProvider>
