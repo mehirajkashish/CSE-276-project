@@ -6,16 +6,22 @@ from typing import List, Dict, Any, Optional, Generator, Tuple
 import requests
 from app.core.config import settings
 from app.models.schemas import SourceCitation
+from app.services.llm_providers import llm_router, NoLLMConfiguredError, LLMProviderError
 
 SYSTEM_INSTRUCTION = (
-    "You are StudyMind AI, a warm, intelligent personal AI assistant and academic study tutor. "
-    "Respond naturally and conversationally like ChatGPT: for casual chat, greetings, check-ins (e.g., 'how are you'), "
-    "thanks, encouragement, or everyday questions, reply warmly, concisely, and naturally in plain conversational prose "
-    "WITHOUT forcing academic headings, templates, tables, or quizzes. "
-    "When explaining academic, technical, mathematical, coding, or study topics, use crisp Markdown: structured headings, "
-    "numbered steps, comparison tables where helpful, syntax-highlighted fenced code blocks, LaTeX math ($...$ and $$...$$), "
-    "and callouts (`> **Note:** ...` or `> **Warning:** ...`). "
-    "NEVER fabricate document filenames, page numbers, or quotes. Only cite sources actually provided in STUDY MATERIALS CONTEXT."
+    "You are StudyMind AI, a powerful, reliable universal AI assistant inspired by the clarity of ChatGPT and Gemini. "
+    "You handle general knowledge, everyday questions, mathematics, physics, chemistry, computer science, programming & debugging "
+    "(DSA, C++, Python, Java, JavaScript, SQL), AI/ML, engineering, writing/rewriting/translation, career & interview prep, "
+    "business, brainstorming, and document research.\n\n"
+    "CORE RESPONSE PRINCIPLES:\n"
+    "1. Understand the user's actual intent and expected output before answering.\n"
+    "2. Give the direct answer first. Match length to the question: short and crisp for simple questions; structured and step-by-step for complex ones.\n"
+    "3. Adapt depth to the student's level (Beginner, Intermediate, or Advanced) when explaining concepts.\n"
+    "4. Do NOT blindly agree with incorrect premises—politely point out wrong assumptions and explain why.\n"
+    "5. Ask a brief clarifying question only when genuinely necessary; otherwise give your best helpful answer.\n"
+    "6. Admit uncertainty rather than guessing or inventing facts, APIs, URLs, filenames, or page numbers.\n"
+    "7. Avoid repetitive greetings, filler phrases, and unnecessary wrap-up conclusions.\n"
+    "8. Format cleanly with Markdown (headings, lists, tables, fenced syntax-highlighted code blocks, and LaTeX `$...$` / `$$...$$` for math) only where it improves clarity."
 )
 
 LEVEL_INSTRUCTIONS = {
@@ -59,16 +65,23 @@ MODE_INSTRUCTIONS = {
         "Hint section so the student can actively think before seeing full solutions."
     ),
     "code": (
-        "SMART MODE — CODE MODE:\n"
-        "- Focus on clean, working, well-commented code in fenced syntax-highlighted blocks (e.g., ```python, ```cpp, ```javascript).\n"
-        "- Walk through the logic step-by-step, highlight debugging pitfalls / edge cases (`> **Warning:** ...`), "
-        "and state Time and Space complexity."
+        "TASK STRATEGY — PROGRAMMING & DEBUGGING:\n"
+        "- Understand the code/problem, identify root-cause bugs or edge cases, and explain errors clearly.\n"
+        "- Write clean, correct, runnable code in fenced blocks (e.g., ```python, ```cpp, ```java, ```javascript, ```sql).\n"
+        "- Explain how the code works rather than dumping code without explanation, and state Time/Space complexity when relevant."
+    ),
+    "math": (
+        "TASK STRATEGY — MATHEMATICS:\n"
+        "- State the relevant formulas/theorems, show clear step-by-step calculations in LaTeX, and double-check/verify the final result."
+    ),
+    "writing": (
+        "TASK STRATEGY — WRITING & COMMUNICATION:\n"
+        "- Deliver polished, ready-to-use emails, essays, reports, summaries, or translations matching the requested tone and audience."
     ),
     "research": (
-        "SMART MODE — RESEARCH MODE:\n"
-        "- Perform rigorous cross-document synthesis over the retrieved passages.\n"
-        "- Explicitly attribute factual claims inline using `[Filename, Page X]` where sources support them, compare or contrast "
-        "evidence across documents (using a Markdown table if multiple concepts/sources apply), and explicitly flag missing evidence."
+        "TASK STRATEGY — RESEARCH & ANALYSIS:\n"
+        "- Break complex questions into clear parts, synthesize evidence from retrieved PDFs (`[Filename, Page X]`) and web sources (`[Title](URL)`), "
+        "and clearly separate established evidence from general context or uncertainty."
     ),
 }
 
@@ -146,7 +159,45 @@ class GeminiService:
         self.default_model = "gemini-flash-lite-latest"
 
     def is_configured(self) -> bool:
-        return bool(settings.gemini_api_key and settings.gemini_api_key.strip())
+        return llm_router.has_any_provider()
+
+    def detect_task_strategy(self, question: str, mode: str = "learn") -> Tuple[str, float]:
+        """Selects an automatic task strategy and appropriate sampling temperature."""
+        norm_mode = self.normalize_mode(mode)
+        q_low = (question or "").strip().lower()
+
+        if norm_mode == "code" or any(
+            k in q_low
+            for k in (
+                "```", "def ", "class ", "function ", "traceback", "segfault", "syntaxerror",
+                "debug", "fix this code", "time complexity", "big-o", "sql query", "c++", "python", "javascript", "java ",
+            )
+        ):
+            return "code", 0.2
+
+        if any(
+            k in q_low
+            for k in (
+                "solve ", "integral", "derivative", "differentiate", "integrate", "equation",
+                "matrix", "eigenvalue", "probability", "calculate ", "proof", "theorem", "simplify ",
+            )
+        ) or re.search(r"\d+\s*[\+\-\*/\^=]\s*\d+", q_low):
+            return "math", 0.15
+
+        if norm_mode == "writing" or any(
+            k in q_low
+            for k in (
+                "write an email", "draft an email", "rewrite", "paraphrase", "cover letter",
+                "essay", "blog post", "translate ", "proofread", "brainstorm", "poem", "story",
+            )
+        ):
+            return "writing", 0.65
+
+        if norm_mode == "research":
+            return "research", 0.25
+        if norm_mode in ("exam", "practice"):
+            return norm_mode, 0.3
+        return "learn", 0.4
 
     def is_greeting(self, question: str) -> bool:
         clean = question.strip().lower()
@@ -259,7 +310,7 @@ class GeminiService:
 
     def normalize_mode(self, mode: Optional[str]) -> str:
         val = (mode or "learn").strip().lower()
-        aliases = {"standard": "learn", "eli5": "learn", "exam rubric": "exam"}
+        aliases = {"standard": "learn", "eli5": "learn", "exam rubric": "exam", "write": "writing"}
         val = aliases.get(val, val)
         return val if val in MODE_INSTRUCTIONS else "learn"
 
@@ -278,37 +329,70 @@ class GeminiService:
         level: Optional[str] = "intermediate",
         mode: Optional[str] = "learn",
         language: Optional[str] = "auto",
+        task_strategy: Optional[str] = None,
         has_citations: bool = False,
+        has_web_results: bool = False,
+        web_unavailable_note: Optional[str] = None,
         strict_doc_missing: bool = False,
         is_casual: bool = False,
     ) -> str:
         lang_rule = self._build_language_rule(language)
         if is_casual:
             return (
-                "You are StudyMind AI, a friendly, helpful multilingual personal AI assistant and study companion. "
+                "You are StudyMind AI, a friendly, intelligent personal AI assistant and study companion. "
                 "The user is chatting casually (greeting, check-in, thanks, small talk, or general everyday chat). "
                 "Reply naturally, warmly, and concisely in plain conversational prose like ChatGPT. "
-                "Do NOT force academic headings, bulleted rubrics, tables, or quizzes unless the user asks a study question.\n\n"
+                "Do NOT force academic headings, bulleted rubrics, tables, or quizzes.\n\n"
                 + lang_rule
             )
 
         lvl = self.normalize_level(level)
         md = self.normalize_mode(mode)
-        parts = [SYSTEM_INSTRUCTION, lang_rule, LEVEL_INSTRUCTIONS[lvl], MODE_INSTRUCTIONS[md]]
+        parts = [SYSTEM_INSTRUCTION, lang_rule, LEVEL_INSTRUCTIONS[lvl]]
+
+        # Attach task-specific instruction (auto-detected math/code/writing overrides generic learn rubric)
+        active_strategy = task_strategy if task_strategy in MODE_INSTRUCTIONS else md
+        if active_strategy in MODE_INSTRUCTIONS:
+            parts.append(MODE_INSTRUCTIONS[active_strategy])
+
         if has_citations:
             parts.append(
-                "GROUNDING RULE:\n"
-                "- Ground factual claims in the supplied STUDY MATERIALS CONTEXT.\n"
-                "- Cite supporting documents inline as [Filename, Page X] when helpful, and NEVER invent filenames, quotes, or page numbers."
+                "DOCUMENT GROUNDING RULE:\n"
+                "- Use the supplied STUDY MATERIALS CONTEXT as the primary source for document-specific claims, citing `[Filename, Page X]`.\n"
+                "- If helpful, you may supplement with accurate general knowledge, clearly distinguishing what comes from the uploaded PDFs vs additional explanation.\n"
+                "- NEVER invent filenames, quotes, or page numbers."
             )
         elif strict_doc_missing:
             parts.append(
                 "DOCUMENT COVERAGE RULE:\n"
-                "- No matching passages were found in the student's uploaded PDFs for this query.\n"
-                "- If the user is simply chatting casually or asking an everyday non-course question, answer naturally without a document warning. "
-                "Otherwise, begin with a brief callout noting this topic was NOT found in their uploaded documents, then answer helpfully using general knowledge."
+                "- The user asked about their uploaded PDFs, and no matching passages were found.\n"
+                "- State clearly up front that the uploaded documents do not contain this information, then offer accurate general guidance clearly labeled as general knowledge."
             )
+
+        if has_web_results:
+            parts.append(
+                "WEB SEARCH GROUNDING RULE:\n"
+                "- Retrieved live web snippets are provided in WEB SEARCH CONTEXT.\n"
+                "- Distinguish current web-retrieved information from your general model knowledge and include clickable Markdown links `[Source Title](URL)`."
+            )
+        elif web_unavailable_note:
+            parts.append(
+                f"WEB SEARCH LIMITATION:\n- Live web search could not retrieve current results ({web_unavailable_note}). "
+                "Be transparent if the answer depends on real-time events or recent updates after your knowledge cutoff, and do NOT claim to have searched the web."
+            )
+
         return "\n\n".join(parts)
+
+    def _format_web_context(self, web_results: Optional[List[Dict[str, str]]]) -> str:
+        if not web_results:
+            return ""
+        blocks = []
+        for idx, item in enumerate(web_results, 1):
+            title = item.get("title") or f"Web Source {idx}"
+            url = item.get("url") or ""
+            snippet = item.get("snippet") or ""
+            blocks.append(f"[Web {idx}] {title}\nURL: {url}\nSummary: {snippet}")
+        return "\n\n".join(blocks)
 
     def _prepare_general_prompt(
         self,
@@ -319,13 +403,19 @@ class GeminiService:
         language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
-    ) -> Tuple[str, str, bool]:
+        web_results: Optional[List[Dict[str, str]]] = None,
+        web_unavailable_note: Optional[str] = None,
+    ) -> Tuple[str, str, bool, float]:
         is_casual = self.is_casual_conversation(question)
+        strategy, temperature = ("learn", 0.55) if is_casual else self.detect_task_strategy(question, mode)
         sys_inst = self.build_system_instruction(
             level=level,
             mode=mode,
             language=language,
+            task_strategy=strategy,
             has_citations=False,
+            has_web_results=bool(web_results),
+            web_unavailable_note=web_unavailable_note,
             strict_doc_missing=strict_doc_missing and not is_casual,
             is_casual=is_casual,
         )
@@ -335,28 +425,25 @@ class GeminiService:
             name_note = f" (Student's first name: {first_name})" if first_name else ""
             user_prompt = (
                 f"USER MESSAGE{name_note}:\n{question}\n\n"
-                f"Respond naturally, warmly, and directly as a helpful conversational AI assistant."
+                f"Respond naturally, warmly, and concisely like ChatGPT."
             )
-            return sys_inst, user_prompt, True
+            return sys_inst, user_prompt, True, temperature
 
-        scope_note = ""
+        blocks = []
+        web_block = self._format_web_context(web_results)
+        if web_block:
+            blocks.append(f"WEB SEARCH CONTEXT:\n{web_block}")
+
         if strict_doc_missing:
-            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
-            scope_note = (
-                f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
-                f"If this is an academic/document question, start with a brief `> **Note — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
-                f"then answer helpfully using general knowledge. If it's casual/everyday chat, just reply normally.\n\n"
+            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "the uploaded documents"
+            blocks.append(
+                f"NOTE ON UPLOADED PDFS: The user referenced {docs_desc}, but no matching passages were retrieved. "
+                f"Inform the student clearly that this wasn't found in {docs_desc}, then answer accurately using general knowledge."
             )
 
-        user_prompt = (
-            f"{scope_note}"
-            f"USER'S MESSAGE:\n{question}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"If the message is casual conversation or everyday chat, reply naturally like ChatGPT without forced templates. "
-            f"For study, coding, math, or technical questions, use your active explanation level and smart chat mode, "
-            f"maintain prior conversation context, and format clearly with Markdown/LaTeX/code blocks where helpful."
-        )
-        return sys_inst, user_prompt, False
+        blocks.append(f"USER QUESTION:\n{question}")
+        user_prompt = "\n\n".join(blocks)
+        return sys_inst, user_prompt, False, temperature
 
     def generate_conversation_title(self, question: str) -> str:
         clean = " ".join((question or "").strip().split())
@@ -376,39 +463,53 @@ class GeminiService:
             snippet += "..."
         return snippet[0].upper() + snippet[1:]
 
-    def _build_gemini_contents(
+    def _build_chat_messages(
         self,
         prompt: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-    ) -> List[Dict[str, Any]]:
-        contents: List[Dict[str, Any]] = []
+    ) -> List[Dict[str, str]]:
+        messages: List[Dict[str, str]] = []
         if conversation_history:
-            for turn in conversation_history[-10:]:
+            for turn in conversation_history[-16:]:
                 role_raw = (turn.get("role") or "").strip().lower()
                 text = (turn.get("content") or turn.get("message") or "").strip()
                 if not text:
                     continue
-                if len(text) > 1600:
-                    text = text[:1600] + "..."
-                gemini_role = "model" if role_raw == "assistant" else "user"
-                contents.append({"role": gemini_role, "parts": [{"text": text}]})
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
-        return contents
+                if len(text) > 1800:
+                    text = text[:1800] + "..."
+                norm_role = "assistant" if role_raw == "assistant" else "user"
+                messages.append({"role": norm_role, "content": text})
+        messages.append({"role": "user", "content": prompt})
+        return messages
 
-    def _resolve_model_name(self, requested_model: Optional[str] = None) -> str:
-        clean = (requested_model or "").strip()
-        allowed = {
-            "gemini-flash-lite-latest",
-            "gemini-3.1-flash-lite",
-            "gemini-3.1-flash-lite-preview",
-            "gemini-flash-latest",
-            "gemini-3-flash-preview",
-            "gemini-pro-latest",
-            "gemini-3.1-pro-preview",
-        }
-        if clean and clean in allowed:
-            return clean
-        return settings.gemini_model or self.default_model
+    def _no_provider_error_text(self) -> str:
+        return (
+            "> **No AI Model Configured:** No LLM API key or local provider is currently active.\n\n"
+            "Configure at least one provider in `backend/.env` or **Settings**:\n"
+            "- `GEMINI_API_KEY` (Google Gemini)\n"
+            "- `OPENAI_API_KEY` (OpenAI or compatible endpoint via `OPENAI_BASE_URL`)\n"
+            "- `OLLAMA_BASE_URL` (Local Ollama server)"
+        )
+
+    def generate_follow_up_suggestions(
+        self,
+        question: str,
+        answer: str,
+        mode: str = "learn",
+        has_citations: bool = False,
+    ) -> List[str]:
+        if self.is_casual_conversation(question) or not answer or len(answer) < 40:
+            return []
+        strategy, _ = self.detect_task_strategy(question, mode)
+        if strategy == "code":
+            return ["Walk through an edge case", "Optimize time/space complexity", "Write unit tests for this"]
+        if strategy == "math":
+            return ["Verify with another example", "Explain the intuition behind this", "Give a practice problem"]
+        if has_citations:
+            return ["Summarize key exam points", "Give a simple analogy", "Quiz me on this PDF section"]
+        if strategy == "writing":
+            return ["Make it more concise", "Make the tone more formal", "Translate into another language"]
+        return ["Explain in simpler terms", "Give a concrete example", "Ask me a check question"]
 
     def generate_general_academic_answer(
         self,
@@ -421,14 +522,14 @@ class GeminiService:
         language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
+        web_results: Optional[List[Dict[str, str]]] = None,
+        web_unavailable_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Answers normal conversational messages and general academic queries when no PDF matches.
-        Adapts to user language, casual chat vs explanation depth, smart chat mode, and prior conversation history.
+        Answers universal user queries and casual conversation using the configured LLM provider router.
+        Reports missing configuration or provider errors transparently instead of pretending a provider responded.
         """
-        api_key = settings.gemini_api_key.strip()
-        model_name = self._resolve_model_name(model)
-        sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
+        sys_inst, user_prompt, is_casual, temperature = self._prepare_general_prompt(
             question=question,
             user_name=user_name,
             level=level,
@@ -436,43 +537,67 @@ class GeminiService:
             language=language,
             strict_doc_missing=strict_doc_missing,
             searched_docs=searched_docs,
+            web_results=web_results,
+            web_unavailable_note=web_unavailable_note,
         )
 
-        if api_key:
-            try:
-                answer, used_model = self._call_gemini_api_with_meta(
-                    api_key,
-                    model_name,
-                    user_prompt,
-                    system_instruction=sys_inst,
-                    conversation_history=conversation_history,
-                )
+        if not llm_router.has_any_provider():
+            if is_casual:
                 return {
-                    "answer": answer,
+                    "answer": self._synthesize_conversational_reply(question, user_name=user_name, language=language),
                     "grounded": False,
-                    "not_found_in_docs": strict_doc_missing and not is_casual,
-                    "model_used": used_model,
+                    "not_found_in_docs": False,
+                    "model_used": "StudyMind Conversational",
+                    "llm_provider": "Built-in",
+                    "follow_up_suggestions": [],
                 }
-            except Exception as e:
-                print(f"[GeminiService] Gemini call failed for general query: {e}")
+            return {
+                "answer": self._no_provider_error_text(),
+                "grounded": False,
+                "not_found_in_docs": False,
+                "model_used": "unconfigured",
+                "llm_provider": "None",
+                "follow_up_suggestions": [],
+            }
 
-        # Local intelligent tutor fallback if API key is not configured or offline
-        local_ans = self._synthesize_general_academic_fallback(
-            question,
-            user_name=user_name,
-            level=level,
-            mode=mode,
-            language=language,
-            conversation_history=conversation_history,
-            strict_doc_missing=strict_doc_missing,
-            searched_docs=searched_docs,
-        )
-        return {
-            "answer": local_ans,
-            "grounded": False,
-            "not_found_in_docs": strict_doc_missing and not is_casual,
-            "model_used": "StudyMind Conversational" if is_casual else "local-academic-tutor",
-        }
+        try:
+            messages = self._build_chat_messages(user_prompt, conversation_history)
+            answer, used_model, provider_label = llm_router.generate(
+                system_instruction=sys_inst,
+                messages=messages,
+                requested_model=model,
+                temperature=temperature,
+            )
+            return {
+                "answer": answer,
+                "grounded": False,
+                "not_found_in_docs": strict_doc_missing and not is_casual,
+                "model_used": used_model,
+                "llm_provider": provider_label,
+                "follow_up_suggestions": self.generate_follow_up_suggestions(question, answer, mode=mode, has_citations=False),
+            }
+        except Exception as exc:
+            print(f"[LLMService] Provider call failed: {exc}")
+            if is_casual:
+                return {
+                    "answer": self._synthesize_conversational_reply(question, user_name=user_name, language=language),
+                    "grounded": False,
+                    "not_found_in_docs": False,
+                    "model_used": "StudyMind Conversational",
+                    "llm_provider": "Built-in Fallback",
+                    "follow_up_suggestions": [],
+                }
+            return {
+                "answer": (
+                    f"> **AI Provider Error:** Could not complete this request (`{str(exc)}`).\n\n"
+                    f"Please retry in a moment or switch to another configured model in the composer."
+                ),
+                "grounded": False,
+                "not_found_in_docs": False,
+                "model_used": "provider-error",
+                "llm_provider": "Error",
+                "follow_up_suggestions": [],
+            }
 
     def _synthesize_general_academic_fallback(
         self,
@@ -590,7 +715,9 @@ class GeminiService:
         level: str = "intermediate",
         mode: str = "learn",
         language: str = "auto",
-    ) -> Tuple[str, str]:
+        web_results: Optional[List[Dict[str, str]]] = None,
+        web_unavailable_note: Optional[str] = None,
+    ) -> Tuple[str, str, float]:
         context_blocks = []
         for i, cite in enumerate(citations, 1):
             clean_c_text = self._clean_slide_text(cite.text)
@@ -599,17 +726,29 @@ class GeminiService:
                 f"[Source {i}: {cite.filename} | Page {cite.page_number} | Relevance: {score_pct}%]\n{clean_c_text}\n"
             )
         formatted_context = "\n---\n".join(context_blocks)
-        sys_inst = self.build_system_instruction(level=level, mode=mode, language=language, has_citations=True)
-
-        user_prompt = (
-            f"STUDY MATERIALS CONTEXT:\n{formatted_context}\n\n"
-            f"STUDENT'S QUESTION:\n{question}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"Answer clearly and thoroughly using your active explanation level, smart chat mode, and language rule. "
-            f"Ground your facts strictly in the retrieved STUDY MATERIALS CONTEXT above, citing sources inline as [Filename, Page X] where helpful. "
-            f"If part of the question is not covered by the context, explicitly state what is missing rather than guessing or inventing citations."
+        strategy, temperature = self.detect_task_strategy(question, mode)
+        sys_inst = self.build_system_instruction(
+            level=level,
+            mode=mode,
+            language=language,
+            task_strategy=strategy,
+            has_citations=True,
+            has_web_results=bool(web_results),
+            web_unavailable_note=web_unavailable_note,
         )
-        return sys_inst, user_prompt
+
+        sections = [f"STUDY MATERIALS CONTEXT:\n{formatted_context}"]
+        web_block = self._format_web_context(web_results)
+        if web_block:
+            sections.append(f"WEB SEARCH CONTEXT:\n{web_block}")
+
+        sections.append(
+            f"USER QUESTION:\n{question}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"Answer clearly and directly. Ground document-specific claims in STUDY MATERIALS CONTEXT using inline citations `[Filename, Page X]`. "
+            f"When additional explanation or general knowledge helps, combine it cleanly while distinguishing PDF evidence from extra explanation."
+        )
+        return sys_inst, "\n\n".join(sections), temperature
 
     def generate_rag_answer(
         self,
@@ -623,10 +762,11 @@ class GeminiService:
         language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
+        web_results: Optional[List[Dict[str, str]]] = None,
+        web_unavailable_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Generates an answer grounded in retrieved RAG context using Gemini API with conversation memory.
-        If no citations exist, handles casual conversation and general queries naturally.
+        Generates an answer grounded in retrieved RAG context (+ optional web context) via llm_router.
         """
         if not citations:
             return self.generate_general_academic_answer(
@@ -639,176 +779,73 @@ class GeminiService:
                 language=language,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
+                web_results=web_results,
+                web_unavailable_note=web_unavailable_note,
             )
 
-        sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode, language=language)
-        api_key = settings.gemini_api_key.strip()
-        model_name = self._resolve_model_name(model)
+        sys_inst, user_prompt, temperature = self._prepare_rag_prompt(
+            question,
+            citations,
+            level=level,
+            mode=mode,
+            language=language,
+            web_results=web_results,
+            web_unavailable_note=web_unavailable_note,
+        )
 
-        if not api_key:
-            synthesized_answer = self._synthesize_local_context(question, citations, level=level, mode=mode)
+        if not llm_router.has_any_provider():
+            synthesized_answer = (
+                "> **Offline Document Excerpts (No LLM API Key Configured):**\n\n"
+                + self._synthesize_local_context(question, citations, level=level, mode=mode)
+            )
             return {
                 "answer": synthesized_answer,
                 "grounded": True,
                 "not_found_in_docs": False,
                 "model_used": "local-rag-synthesizer",
+                "llm_provider": "Offline Extractive RAG",
+                "follow_up_suggestions": self.generate_follow_up_suggestions(question, synthesized_answer, mode=mode, has_citations=True),
             }
 
         try:
-            answer, used_model = self._call_gemini_api_with_meta(
-                api_key,
-                model_name,
-                user_prompt,
+            messages = self._build_chat_messages(user_prompt, conversation_history)
+            answer, used_model, provider_label = llm_router.generate(
                 system_instruction=sys_inst,
-                conversation_history=conversation_history,
+                messages=messages,
+                requested_model=model,
+                temperature=temperature,
             )
             return {
                 "answer": answer,
                 "grounded": True,
                 "not_found_in_docs": False,
                 "model_used": used_model,
+                "llm_provider": provider_label,
+                "follow_up_suggestions": self.generate_follow_up_suggestions(question, answer, mode=mode, has_citations=True),
             }
         except Exception as e:
-            print(f"[GeminiService] Gemini call failed for RAG query: {e}")
-            local_ans = self._synthesize_local_context(question, citations, level=level, mode=mode)
+            print(f"[LLMService] Provider call failed for RAG query: {e}")
+            local_ans = (
+                f"> **Note:** Live LLM synthesis failed (`{str(e)}`). Showing retrieved document excerpts:\n\n"
+                + self._synthesize_local_context(question, citations, level=level, mode=mode)
+            )
             return {
                 "answer": local_ans,
                 "grounded": True,
                 "not_found_in_docs": False,
                 "model_used": "local-fallback",
+                "llm_provider": "Extractive Fallback",
+                "follow_up_suggestions": [],
             }
 
-    def _call_gemini_api_with_meta(
-        self,
-        api_key: str,
-        model: str,
-        prompt: str,
-        system_instruction: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-    ) -> Tuple[str, str]:
-        payload = {
-            "contents": self._build_gemini_contents(prompt, conversation_history),
-            "systemInstruction": {
-                "parts": [{"text": system_instruction or SYSTEM_INSTRUCTION}]
-            },
-            "generationConfig": {
-                "temperature": 0.25,
-                "maxOutputTokens": 2048,
-            },
-        }
-
-        headers = {"x-goog-api-key": api_key}
-        candidates_to_try = [model] + [m for m in self.FALLBACK_MODELS if m != model]
-        resp = None
-        used_model = model
-        last_error = None
-        for idx, candidate_model in enumerate(candidates_to_try):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:generateContent"
-            resp = requests.post(url, headers=headers, json=payload, timeout=30.0)
-            if resp.status_code == 200:
-                used_model = candidate_model
-                break
-            err_text = resp.text
-            try:
-                err_json = resp.json()
-                err_msg = err_json.get("error", {}).get("message", err_text)
-            except Exception:
-                err_msg = err_text
-            last_error = f"Gemini API Error ({resp.status_code}): {err_msg}"
-            if resp.status_code not in (404, 429, 500, 503) or idx == len(candidates_to_try) - 1:
-                raise Exception(last_error)
-
-        if resp is None or resp.status_code != 200:
-            raise Exception(last_error or "Gemini API call failed.")
-
-        data = resp.json()
-        candidates = data.get("candidates", [])
-        if not candidates:
-            raise Exception("Gemini returned empty candidates.")
-
-        text_parts = candidates[0].get("content", {}).get("parts", [])
-        if not text_parts:
-            finish_reason = candidates[0].get("finishReason", "UNKNOWN")
-            raise Exception(f"No response text received (finish reason: {finish_reason}).")
-
-        answer_chunks = [p.get("text", "") for p in text_parts if not p.get("thought") and p.get("text")]
-        if answer_chunks:
-            return "\n".join(answer_chunks).strip(), used_model
-        return text_parts[0].get("text", ""), used_model
-
     def _call_gemini_api(self, api_key: str, model: str, prompt: str) -> str:
-        text, _ = self._call_gemini_api_with_meta(api_key, model, prompt)
+        text, _, _ = llm_router.generate(
+            system_instruction=SYSTEM_INSTRUCTION,
+            messages=[{"role": "user", "content": prompt}],
+            requested_model=model,
+            temperature=0.2,
+        )
         return text
-
-    def _stream_gemini_api(
-        self,
-        api_key: str,
-        model: str,
-        prompt: str,
-        system_instruction: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-    ) -> Generator[Tuple[str, str], None, None]:
-        """Streams (delta_text, used_model) directly from Gemini streamGenerateContent SSE."""
-        payload = {
-            "contents": self._build_gemini_contents(prompt, conversation_history),
-            "systemInstruction": {
-                "parts": [{"text": system_instruction or SYSTEM_INSTRUCTION}]
-            },
-            "generationConfig": {
-                "temperature": 0.25,
-                "maxOutputTokens": 2048,
-            },
-        }
-        headers = {"x-goog-api-key": api_key}
-        candidates_to_try = [model] + [m for m in self.FALLBACK_MODELS if m != model]
-
-        resp = None
-        used_model = model
-        last_error = None
-        for idx, candidate_model in enumerate(candidates_to_try):
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:streamGenerateContent?alt=sse"
-            r = requests.post(url, headers=headers, json=payload, timeout=(15.0, 60.0), stream=True)
-            if r.status_code == 200:
-                resp = r
-                used_model = candidate_model
-                break
-            err_text = r.text
-            r.close()
-            try:
-                err_msg = json.loads(err_text).get("error", {}).get("message", err_text)
-            except Exception:
-                err_msg = err_text
-            last_error = f"Gemini Stream Error ({r.status_code}): {err_msg}"
-            if r.status_code not in (404, 429, 500, 503) or idx == len(candidates_to_try) - 1:
-                raise Exception(last_error)
-
-        if resp is None:
-            raise Exception(last_error or "Gemini stream connection failed.")
-
-        try:
-            resp.encoding = "utf-8"
-            for raw_line in resp.iter_lines(decode_unicode=True):
-                if not raw_line or not raw_line.startswith("data:"):
-                    continue
-                json_str = raw_line[5:].strip()
-                if not json_str or json_str == "[DONE]":
-                    continue
-                try:
-                    chunk_obj = json.loads(json_str)
-                except Exception:
-                    continue
-                candidates = chunk_obj.get("candidates", [])
-                if not candidates:
-                    continue
-                parts = candidates[0].get("content", {}).get("parts", [])
-                for part in parts:
-                    if part.get("thought"):
-                        continue
-                    txt = part.get("text")
-                    if txt:
-                        yield txt, used_model
-        finally:
-            resp.close()
 
     def stream_chat_response(
         self,
@@ -822,19 +859,26 @@ class GeminiService:
         language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
+        web_results: Optional[List[Dict[str, str]]] = None,
+        web_unavailable_note: Optional[str] = None,
     ) -> Generator[Dict[str, Any], None, None]:
         """
-        Yields streaming text delta dicts {"text": ..., "model_used": ...} via Gemini SSE
-        with graceful chunked local fallback if Gemini is unconfigured or errors before output starts.
+        Yields streaming delta dicts {"text": ..., "model_used": ..., "llm_provider": ...} via llm_router
+        with honest provider errors if no LLM is configured or all providers fail.
         """
-        api_key = settings.gemini_api_key.strip()
-        model_name = self._resolve_model_name(model)
         is_casual = False
-
         if citations:
-            sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode, language=language)
+            sys_inst, user_prompt, temperature = self._prepare_rag_prompt(
+                question,
+                citations,
+                level=level,
+                mode=mode,
+                language=language,
+                web_results=web_results,
+                web_unavailable_note=web_unavailable_note,
+            )
         else:
-            sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
+            sys_inst, user_prompt, is_casual, temperature = self._prepare_general_prompt(
                 question=question,
                 user_name=user_name,
                 level=level,
@@ -842,47 +886,63 @@ class GeminiService:
                 language=language,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
+                web_results=web_results,
+                web_unavailable_note=web_unavailable_note,
             )
+
+        if not llm_router.has_any_provider():
+            if is_casual:
+                msg = self._synthesize_conversational_reply(question, user_name=user_name, language=language)
+                used, prov = "StudyMind Conversational", "Built-in"
+            elif citations:
+                msg = (
+                    "> **Offline Document Excerpts (No LLM API Key Configured):**\n\n"
+                    + self._synthesize_local_context(question, citations, level=level, mode=mode)
+                )
+                used, prov = "local-rag-synthesizer", "Offline Extractive RAG"
+            else:
+                msg = self._no_provider_error_text()
+                used, prov = "unconfigured", "None"
+
+            for piece in self._chunk_text_for_stream(msg):
+                yield {"text": piece, "model_used": used, "llm_provider": prov}
+            return
 
         yielded_any = False
-        if api_key:
-            try:
-                for delta, used_model in self._stream_gemini_api(
-                    api_key,
-                    model_name,
-                    user_prompt,
-                    system_instruction=sys_inst,
-                    conversation_history=conversation_history,
-                ):
-                    yielded_any = True
-                    yield {"text": delta, "model_used": used_model}
-                if yielded_any:
-                    return
-            except Exception as e:
-                print(f"[GeminiService] Stream failed (yielded_any={yielded_any}): {e}")
-                if yielded_any:
-                    raise
+        try:
+            messages = self._build_chat_messages(user_prompt, conversation_history)
+            for delta, used_model, provider_label in llm_router.stream(
+                system_instruction=sys_inst,
+                messages=messages,
+                requested_model=model,
+                temperature=temperature,
+            ):
+                yielded_any = True
+                yield {"text": delta, "model_used": used_model, "llm_provider": provider_label}
+            if yielded_any:
+                return
+        except Exception as e:
+            print(f"[LLMService] Stream failed (yielded_any={yielded_any}): {e}")
+            if yielded_any:
+                raise
+            if is_casual:
+                fallback_text = self._synthesize_conversational_reply(question, user_name=user_name, language=language)
+                used, prov = "StudyMind Conversational", "Built-in Fallback"
+            elif citations:
+                fallback_text = (
+                    f"> **Note:** Live LLM synthesis failed (`{str(e)}`). Showing retrieved document excerpts:\n\n"
+                    + self._synthesize_local_context(question, citations, level=level, mode=mode)
+                )
+                used, prov = "local-fallback", "Extractive Fallback"
+            else:
+                fallback_text = (
+                    f"> **AI Provider Error:** Could not complete this request (`{str(e)}`).\n\n"
+                    f"Please retry in a moment or switch to another configured model in the composer."
+                )
+                used, prov = "provider-error", "Error"
 
-        # Seamless fallback if unconfigured or failed before first token
-        if citations:
-            fallback_text = self._synthesize_local_context(question, citations, level=level, mode=mode)
-            used = "local-rag-synthesizer" if not api_key else "local-fallback"
-        else:
-            fallback_text = self._synthesize_general_academic_fallback(
-                question,
-                user_name=user_name,
-                level=level,
-                mode=mode,
-                language=language,
-                conversation_history=conversation_history,
-                strict_doc_missing=strict_doc_missing,
-                searched_docs=searched_docs,
-            )
-            used = "StudyMind Conversational" if is_casual else "local-academic-tutor"
-
-        for piece in self._chunk_text_for_stream(fallback_text):
-            yield {"text": piece, "model_used": used}
-            time.sleep(0.015)
+            for piece in self._chunk_text_for_stream(fallback_text):
+                yield {"text": piece, "model_used": used, "llm_provider": prov}
 
     def _chunk_text_for_stream(self, text: str, words_per_chunk: int = 5) -> List[str]:
         tokens = re.findall(r"\S+\s*", text)

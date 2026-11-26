@@ -27,6 +27,7 @@ import {
   ClipboardCheck,
   Send,
   X,
+  Globe,
 } from 'lucide-react';
 
 /**
@@ -389,6 +390,8 @@ export default function ChatBubble({
   onRegenerate,
   onEditUserMessage,
   onFeedback,
+  onFollowUpClick,
+  isLastMessage = false,
   disabledActions = false,
 }) {
   const isUser = message.role === 'user';
@@ -830,6 +833,48 @@ export default function ChatBubble({
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Live Web Search Citations */}
+          {!isUser && Array.isArray(message.web_sources) && message.web_sources.length > 0 && (
+            <div className="pt-2.5 mt-2 border-t border-white/[0.06] flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-[11px] text-[#94A3B8] font-medium mr-0.5 flex items-center gap-1">
+                <Globe className="w-3 h-3 text-[#38BDF8]" />
+                Web:
+              </span>
+              {message.web_sources.map((ws, idx) => (
+                <a
+                  key={idx}
+                  href={ws.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] text-[#BAE6FD] hover:text-white transition"
+                  style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)' }}
+                  title={ws.snippet || ws.url}
+                >
+                  <span className="truncate max-w-[170px] font-medium">{ws.title}</span>
+                  <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Clickable Follow-up Suggestions (on latest assistant message) */}
+          {!isUser && !isStreaming && isLastMessage && Array.isArray(message.follow_up_suggestions) && message.follow_up_suggestions.length > 0 && onFollowUpClick && (
+            <div className="pt-2 flex flex-wrap items-center gap-1.5">
+              {message.follow_up_suggestions.map((sug, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  disabled={disabledActions}
+                  onClick={() => onFollowUpClick(sug)}
+                  className="px-3 py-1 rounded-full text-[11px] font-medium text-[#93C5FD] hover:text-white transition disabled:opacity-35"
+                  style={{ background: 'rgba(79,140,255,0.08)', border: '1px solid rgba(79,140,255,0.22)' }}
+                >
+                  {sug} →
+                </button>
+              ))}
             </div>
           )}
         </div>

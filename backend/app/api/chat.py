@@ -15,6 +15,7 @@ from app.models.schemas import (
     ChatRequest,
     ChatResponse,
     SourceCitation,
+    WebSourceCitation,
     ConversationSummary,
     ConversationDetail,
     MessageResponse,
@@ -25,6 +26,8 @@ from app.models.schemas import (
 from app.rag.embeddings import embedding_service
 from app.rag.vector_store import vector_store
 from app.services.gemini_service import gemini_service
+from app.services.llm_providers import llm_router
+from app.services.web_search_service import web_search_service
 from app.services.study_service import study_service
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -32,23 +35,88 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 FOLLOW_UP_MARKERS = (
     "it", "that", "this", "these", "those", "above", "previous",
     "simpler", "simple", "example", "summarize", "summary", "more",
-    "why", "how", "step", "explain", "elaborate", "clarify",
+    "why", "how", "step", "explain", "elaborate", "clarify", "continue", "again",
+)
+
+DOC_INTENT_MARKERS = (
+    "pdf", "document", "docs", "file", "notes", "slides", "syllabus", "textbook",
+    "uploaded", "chapter", "unit ", "page ", "lecture", "according to my", "from my",
+    "in my notes", "in the document", "summarize the",
 )
 
 
-def _load_user_conversation_history(db: Session, conversation_id: str, user_id: str, limit: int = 12) -> List[Dict[str, str]]:
-    """Loads conversation turns strictly scoped to the authenticated user & thread."""
+def _is_document_scoped_query(clean_question: str, requested_doc_ids: Optional[List[str]]) -> bool:
+    """Returns True when the user explicitly selects documents or asks about uploaded study materials."""
+    if requested_doc_ids and len(requested_doc_ids) > 0:
+        return True
+    q_low = (clean_question or "").strip().lower()
+    return any(marker in q_low for marker in DOC_INTENT_MARKERS)
+
+
+def _load_user_conversation_history(
+    db: Session,
+    conversation_id: str,
+    user_id: str,
+    current_query: str = "",
+    recent_limit: int = 10,
+) -> List[Dict[str, str]]:
+    """
+    Loads user-scoped conversation history with long-context management:
+    - Up to 12 turns: returns verbatim history.
+    - > 12 turns: synthesizes a compact summary of older turns + retrieves top relevant older messages + preserves the 10 most recent turns.
+    """
     conv = db.query(ChatConversation).filter(
         ChatConversation.id == conversation_id,
         ChatConversation.user_id == user_id,
     ).first()
     if not conv:
         return []
-    msgs = conv.messages[-limit:] if len(conv.messages) > limit else conv.messages
-    return [
-        {"id": m.id, "role": m.role, "content": m.message}
-        for m in msgs
+
+    all_msgs = list(conv.messages)
+    if len(all_msgs) <= recent_limit + 2:
+        return [
+            {"id": m.id, "role": m.role, "content": m.message}
+            for m in all_msgs
+        ]
+
+    older = all_msgs[:-recent_limit]
+    recent = all_msgs[-recent_limit:]
+
+    # Build a compact rolling summary of older user topics so long threads never overflow
+    older_user_topics = [
+        " ".join((m.message or "").split())[:90]
+        for m in older
+        if m.role == "user" and (m.message or "").strip()
     ]
+    context_turns: List[Dict[str, str]] = []
+    if older_user_topics:
+        summary_text = (
+            "[Earlier conversation summary — "
+            + f"{len(older)} prior messages covering: "
+            + "; ".join(older_user_topics[-6:])
+            + "]"
+        )
+        context_turns.append({"id": "summary-older", "role": "assistant", "content": summary_text})
+
+    # Retrieve relevant older messages when keywords overlap with current_query
+    query_tokens = {
+        w for w in re.findall(r"[a-zA-Z0-9_]{3,}", (current_query or "").lower())
+        if w not in FOLLOW_UP_MARKERS
+    }
+    if query_tokens and older:
+        scored_older = []
+        for m in older:
+            msg_low = (m.message or "").lower()
+            hits = sum(1 for tok in query_tokens if tok in msg_low)
+            if hits > 0:
+                scored_older.append((hits, m))
+        scored_older.sort(key=lambda pair: pair[0], reverse=True)
+        for _, rel_m in scored_older[:3]:
+            context_turns.append({"id": rel_m.id, "role": rel_m.role, "content": rel_m.message})
+
+    for m in recent:
+        context_turns.append({"id": m.id, "role": m.role, "content": m.message})
+    return context_turns
 
 
 def _build_retrieval_query(clean_question: str, history: List[Dict[str, str]]) -> str:
@@ -206,25 +274,39 @@ def _prepare_chat_context(db: Session, current_user: User, request: ChatRequest)
     if request.replace_from_message_id:
         _truncate_messages_from(db, conversation.id, request.replace_from_message_id)
 
-    history = _load_user_conversation_history(db, conversation.id, current_user.id)
+    history = _load_user_conversation_history(db, conversation.id, current_user.id, current_query=clean_question)
     top_k = request.top_k if request.top_k and request.top_k > 0 else (6 if mode == "research" else 4)
 
     is_greeting = gemini_service.is_casual_conversation(clean_question)
+    explicit_doc_query = _is_document_scoped_query(clean_question, request.document_ids)
     citations: List[SourceCitation] = []
     searched_names: List[str] = []
     user_docs_count = 0
 
     if not is_greeting:
         retrieval_query = _build_retrieval_query(clean_question, history)
+        # Strict high threshold (0.30) for general queries so irrelevant PDFs never hijack universal questions
+        threshold = 0.08 if explicit_doc_query else 0.30
         citations, searched_names, user_docs_count = _retrieve_citations_for_user(
             db=db,
             user_id=current_user.id,
             retrieval_query=retrieval_query,
             requested_doc_ids=request.document_ids,
             top_k=top_k,
+            score_threshold=threshold,
         )
 
-    strict_doc_missing = (not is_greeting) and (user_docs_count > 0) and (len(citations) == 0)
+    strict_doc_missing = (not is_greeting) and explicit_doc_query and (user_docs_count > 0) and (len(citations) == 0)
+
+    # Optional Web Search for current/real-time questions
+    web_results: List[Dict[str, str]] = []
+    web_unavailable_note: Optional[str] = None
+    if (not is_greeting) and web_search_service.should_search_web(clean_question, mode=mode, explicit_web_search=request.use_web_search):
+        ws = web_search_service.search(clean_question, max_results=4)
+        if ws["status"] == "ok":
+            web_results = ws["results"]
+        elif ws["status"] in ("unavailable", "disabled") and request.use_web_search is True:
+            web_unavailable_note = ws.get("error") or "Web search is unavailable."
 
     return {
         "clean_question": clean_question,
@@ -239,7 +321,20 @@ def _prepare_chat_context(db: Session, current_user: User, request: ChatRequest)
         "searched_names": searched_names,
         "user_docs_count": user_docs_count,
         "strict_doc_missing": strict_doc_missing,
+        "web_results": web_results,
+        "web_unavailable_note": web_unavailable_note,
     }
+
+
+@router.get("/models", response_model=dict)
+def list_chat_models(current_user: User = Depends(get_current_user)):
+    """Return genuinely configured LLM providers, models, and web-search capability."""
+    info = llm_router.list_available_models()
+    info["web_search"] = {
+        "enabled": web_search_service.is_enabled(),
+        "provider": web_search_service.configured_provider_name(),
+    }
+    return info
 
 
 @router.post("", response_model=ChatResponse)
@@ -249,8 +344,8 @@ def chat_with_rag(
     db: Session = Depends(get_db),
 ):
     """
-    RAG Chat Assistant Endpoint supporting conversation memory, smart modes,
-    explanation levels, multi-document retrieval, and strict grounding.
+    Universal AI Chat Endpoint supporting multi-provider LLMs, adaptive system prompts,
+    long-context conversation memory, intelligent PDF RAG grounding, and optional web search.
     """
     start_time = time.time()
     ctx = _prepare_chat_context(db, current_user, request)
@@ -267,16 +362,21 @@ def chat_with_rag(
         language=ctx["language"],
         strict_doc_missing=ctx["strict_doc_missing"],
         searched_docs=ctx["searched_names"],
+        web_results=ctx["web_results"],
+        web_unavailable_note=ctx["web_unavailable_note"],
     )
 
     user_msg, asst_msg = _persist_turn(
         db, conv.id, ctx["clean_question"], gen_result["answer"], ctx["citations"]
     )
     exec_time = round((time.time() - start_time) * 1000, 2)
+    web_sources_out = [WebSourceCitation(**w) for w in ctx["web_results"]]
 
     return ChatResponse(
         answer=gen_result["answer"],
         sources=ctx["citations"],
+        web_sources=web_sources_out,
+        follow_up_suggestions=gen_result.get("follow_up_suggestions", []),
         conversation_id=conv.id,
         message_id=asst_msg.id,
         user_message_id=user_msg.id,
@@ -285,7 +385,7 @@ def chat_with_rag(
         mode=ctx["mode"],
         explanation_level=ctx["level"],
         title=conv.title,
-        llm_provider="Google Gemini" if gemini_service.is_configured() else "StudyMind AI Tutor",
+        llm_provider=gen_result.get("llm_provider") or ("Configured LLM" if gemini_service.is_configured() else "Unconfigured"),
         model_used=gen_result.get("model_used", "gemini-flash-lite-latest"),
         execution_time_ms=exec_time,
     )
@@ -304,6 +404,7 @@ def stream_chat_with_rag(
     conv_id = conv.id
     conv_title = conv.title
     citations: List[SourceCitation] = ctx["citations"]
+    web_sources_out = [WebSourceCitation(**w).model_dump() for w in ctx["web_results"]]
     user_msg_id = str(uuid.uuid4())
     asst_msg_id = str(uuid.uuid4())
     user_full_name = current_user.full_name
@@ -320,6 +421,7 @@ def stream_chat_with_rag(
                 "message_id": asst_msg_id,
                 "title": conv_title,
                 "sources": [c.model_dump() for c in citations],
+                "web_sources": web_sources_out,
                 "grounded": bool(citations) and not ctx["is_greeting"],
                 "not_found_in_docs": ctx["strict_doc_missing"],
                 "mode": ctx["mode"],
@@ -328,7 +430,8 @@ def stream_chat_with_rag(
         )
 
         chunks_acc: List[str] = []
-        used_model = "StudyMind Conversational" if ctx["is_greeting"] else "local-rag-synthesizer"
+        used_model = "StudyMind Conversational" if ctx["is_greeting"] else "unconfigured"
+        used_provider = "StudyMind AI"
         saved = False
         stream_db = SessionLocal()
 
@@ -344,10 +447,14 @@ def stream_chat_with_rag(
                 language=ctx["language"],
                 strict_doc_missing=ctx["strict_doc_missing"],
                 searched_docs=ctx["searched_names"],
+                web_results=ctx["web_results"],
+                web_unavailable_note=ctx["web_unavailable_note"],
             ):
                 piece = item.get("text", "")
                 if item.get("model_used"):
                     used_model = item["model_used"]
+                if item.get("llm_provider"):
+                    used_provider = item["llm_provider"]
                 if piece:
                     chunks_acc.append(piece)
                     yield sse_event("chunk", {"text": piece})
@@ -365,6 +472,13 @@ def stream_chat_with_rag(
                 )
                 saved = True
 
+            suggestions = gemini_service.generate_follow_up_suggestions(
+                ctx["clean_question"],
+                full_answer,
+                mode=ctx["mode"],
+                has_citations=bool(citations),
+            )
+
             yield sse_event(
                 "done",
                 {
@@ -374,7 +488,9 @@ def stream_chat_with_rag(
                     "answer": full_answer,
                     "title": conv_title,
                     "model_used": used_model,
-                    "llm_provider": "Google Gemini" if gemini_service.is_configured() else "StudyMind AI Tutor",
+                    "llm_provider": used_provider,
+                    "web_sources": web_sources_out,
+                    "follow_up_suggestions": suggestions,
                     "execution_time_ms": round((time.time() - start_time) * 1000, 2),
                 },
             )

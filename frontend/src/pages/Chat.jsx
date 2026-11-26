@@ -23,7 +23,8 @@ const CHAT_MODES = [
   { id: 'exam',     label: 'Exam',     hint: 'Definitions & key exam points',    icon: ClipboardList },
   { id: 'practice', label: 'Practice', hint: 'Questions & interactive practice', icon: HelpCircle },
   { id: 'code',     label: 'Code',     hint: 'Code walkthrough, debug & Big-O',  icon: Code2 },
-  { id: 'research', label: 'Research', hint: 'Cross-PDF synthesis & evidence',   icon: FlaskConical },
+  { id: 'writing',  label: 'Writing',  hint: 'Emails, essays, summaries & prose', icon: Pencil },
+  { id: 'research', label: 'Research', hint: 'Cross-PDF & web synthesis',        icon: FlaskConical },
 ];
 
 const EXPLANATION_LEVELS = [
@@ -370,9 +371,13 @@ export default function Chat() {
   /* ── Tutor controls ── */
   const [tutorLevel,    setTutorLevel]    = useState('intermediate');
   const [chatMode,      setChatMode]      = useState('learn');
-  const [selectedModel, setSelectedModel] = useState(() => {
+  const [availableModels, setAvailableModels] = useState(CHAT_MODELS);
+  const [llmConfigured,   setLlmConfigured]   = useState(true);
+  const [webSearchAvail,  setWebSearchAvail]  = useState({ enabled: true, provider: 'Auto' });
+  const [useWebSearch,    setUseWebSearch]    = useState(null); // null=auto | true=force web search
+  const [selectedModel,   setSelectedModel]   = useState(() => {
     const saved = localStorage.getItem('studymind_chat_model');
-    return CHAT_MODELS.some((m) => m.id === saved) ? saved : 'gemini-flash-lite-latest';
+    return saved || 'gemini-flash-lite-latest';
   });
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
     const saved = localStorage.getItem('studymind_chat_language');
@@ -476,12 +481,27 @@ export default function Chat() {
   const loadInitialData = async () => {
     try {
       setInitialLoading(true);
-      const [docs, convs] = await Promise.all([
+      const [docs, convs, modelsInfo] = await Promise.all([
         documentApi.getDocuments().catch(() => []),
         chatApi.getConversations().catch(() => []),
+        chatApi.getModels().catch(() => null),
       ]);
       setDocuments(docs || []);
       setConversations(convs || []);
+      if (modelsInfo) {
+        setLlmConfigured(Boolean(modelsInfo.configured));
+        if (modelsInfo.web_search) setWebSearchAvail(modelsInfo.web_search);
+        if (Array.isArray(modelsInfo.models) && modelsInfo.models.length > 0) {
+          setAvailableModels(modelsInfo.models);
+          setSelectedModel((prev) =>
+            modelsInfo.models.some((m) => m.id === prev)
+              ? prev
+              : (modelsInfo.default_model || modelsInfo.models[0].id)
+          );
+        } else if (modelsInfo.configured === false) {
+          setAvailableModels([]);
+        }
+      }
       if (urlConvId)                      setActiveConversationId(urlConvId);
       else if (convs?.length > 0 && !isNewQuery) setActiveConversationId(convs[0].id);
       else                                setMessages([]);
@@ -600,6 +620,7 @@ export default function Chat() {
         explanation_level: tutorLevel,
         model: selectedModel,
         language: selectedLanguage,
+        use_web_search: useWebSearch,
         replace_from_message_id: replaceFromMessageId,
         signal: ctrl.signal,
         onMeta: (meta) => {
@@ -607,7 +628,17 @@ export default function Chat() {
           if (meta.message_id)       resolvedAId    = meta.message_id;
           setMessages((prev) => prev.map((m) => {
             if (m.id === tempUId && meta.user_message_id) return { ...m, id: meta.user_message_id };
-            if (m.id === tempAId || m.id === resolvedAId) return { ...m, id: meta.message_id || m.id, sources: meta.sources || [], not_found_in_docs: Boolean(meta.not_found_in_docs), mode: meta.mode || m.mode, explanation_level: meta.explanation_level || m.explanation_level };
+            if (m.id === tempAId || m.id === resolvedAId) {
+              return {
+                ...m,
+                id: meta.message_id || m.id,
+                sources: meta.sources || [],
+                web_sources: meta.web_sources || [],
+                not_found_in_docs: Boolean(meta.not_found_in_docs),
+                mode: meta.mode || m.mode,
+                explanation_level: meta.explanation_level || m.explanation_level,
+              };
+            }
             return m;
           }));
         },
@@ -615,7 +646,15 @@ export default function Chat() {
           setMessages((prev) => prev.map((m) => (m.id === resolvedAId || m.id === tempAId ? { ...m, content: fullText, isStreaming: true } : m)));
         },
         onDone: (done) => {
-          setMessages((prev) => prev.map((m) => (m.id === resolvedAId || m.id === tempAId ? { ...m, id: done.message_id || m.id, content: done.answer || m.content, model_used: done.model_used, isStreaming: false } : m)));
+          setMessages((prev) => prev.map((m) => (m.id === resolvedAId || m.id === tempAId ? {
+            ...m,
+            id: done.message_id || m.id,
+            content: done.answer || m.content,
+            model_used: done.model_used,
+            web_sources: done.web_sources || m.web_sources || [],
+            follow_up_suggestions: done.follow_up_suggestions || [],
+            isStreaming: false,
+          } : m)));
         },
       });
       if (resolvedConvId && resolvedConvId !== activeConversationId) {
@@ -729,7 +768,9 @@ export default function Chat() {
   }, [conversations, threadSearch, pinnedIds]);
 
   const activeModeObj  = CHAT_MODES.find((m) => m.id === chatMode) || CHAT_MODES[0];
-  const activeModelObj = CHAT_MODELS.find((m) => m.id === selectedModel) || CHAT_MODELS[0];
+  const activeModelObj = !llmConfigured
+    ? { id: '', label: 'No Model Key', badge: 'Unconfigured', desc: 'Set GEMINI_API_KEY, OPENAI_API_KEY, or OLLAMA_BASE_URL on backend' }
+    : (availableModels.find((m) => m.id === selectedModel) || availableModels[0] || CHAT_MODELS[0]);
   const activeLangObj  = CHAT_LANGUAGES.find((l) => l.id === selectedLanguage) || CHAT_LANGUAGES[0];
   const safeMessages   = Array.isArray(messages) ? messages : [];
 
@@ -946,12 +987,14 @@ export default function Chat() {
                   <ChatBubble
                     key={msg.id || index}
                     message={msg}
+                    isLastMessage={index === safeMessages.length - 1}
                     disabledActions={loading || isStreaming}
                     onNavigateToDoc={handleNavigateToDoc}
                     onContextualAction={(actionType, mObj) => handleContextualAction(actionType, mObj)}
                     onRegenerate={() => handleRegenerate(index)}
                     onEditUserMessage={(newTxt) => handleEditUser(index, newTxt)}
                     onFeedback={(msgId, val) => handleFeedback(msgId, val)}
+                    onFollowUpClick={(sug) => handleSendMessage(sug)}
                   />
                 ))}
 
@@ -1135,42 +1178,48 @@ export default function Chat() {
                         }}
                       >
                         <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
-                          Select Gemini Model
+                          {llmConfigured ? 'Configured AI Models' : 'No LLM Provider Configured'}
                         </div>
-                        {CHAT_MODELS.map((m) => {
-                          const isCurrent = selectedModel === m.id;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false); }}
-                              className="w-full flex items-start justify-between gap-2 px-2.5 py-2 rounded-xl text-left transition-all duration-150 hover:bg-white/[0.04]"
-                              style={{
-                                background: isCurrent ? 'rgba(139,124,255,0.14)' : 'transparent',
-                                border: isCurrent ? '1px solid rgba(139,124,255,0.28)' : '1px solid transparent',
-                              }}
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`text-xs font-semibold ${isCurrent ? 'text-[#F1F5FC]' : 'text-[#CBD5E1]'}`}>
-                                    {m.label}
-                                  </span>
-                                  <span
-                                    className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-md"
-                                    style={{
-                                      background: isCurrent ? 'rgba(79,140,255,0.2)' : 'rgba(255,255,255,0.06)',
-                                      color: isCurrent ? '#93C5FD' : '#94A3B8',
-                                    }}
-                                  >
-                                    {m.badge}
-                                  </span>
+                        {!llmConfigured || availableModels.length === 0 ? (
+                          <div className="px-3 py-2.5 rounded-xl text-xs text-[#FCA5A5] bg-rose-500/10 border border-rose-500/20">
+                            No AI API key is connected on the backend. Add <code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code>, or <code>OLLAMA_BASE_URL</code> in Settings / <code>.env</code>.
+                          </div>
+                        ) : (
+                          availableModels.map((m) => {
+                            const isCurrent = selectedModel === m.id;
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false); }}
+                                className="w-full flex items-start justify-between gap-2 px-2.5 py-2 rounded-xl text-left transition-all duration-150 hover:bg-white/[0.04]"
+                                style={{
+                                  background: isCurrent ? 'rgba(139,124,255,0.14)' : 'transparent',
+                                  border: isCurrent ? '1px solid rgba(139,124,255,0.28)' : '1px solid transparent',
+                                }}
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-xs font-semibold ${isCurrent ? 'text-[#F1F5FC]' : 'text-[#CBD5E1]'}`}>
+                                      {m.label}
+                                    </span>
+                                    <span
+                                      className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded-md"
+                                      style={{
+                                        background: isCurrent ? 'rgba(79,140,255,0.2)' : 'rgba(255,255,255,0.06)',
+                                        color: isCurrent ? '#93C5FD' : '#94A3B8',
+                                      }}
+                                    >
+                                      {m.badge}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-[#64748B] mt-0.5 leading-snug">{m.desc}</p>
                                 </div>
-                                <p className="text-[11px] text-[#64748B] mt-0.5 leading-snug">{m.desc}</p>
-                              </div>
-                              {isCurrent && <Check className="w-3.5 h-3.5 text-[#8B7CFF] shrink-0 mt-0.5" />}
-                            </button>
-                          );
-                        })}
+                                {isCurrent && <Check className="w-3.5 h-3.5 text-[#8B7CFF] shrink-0 mt-0.5" />}
+                              </button>
+                            );
+                          })
+                        )}
                       </div>
                     )}
                   </div>
@@ -1234,6 +1283,28 @@ export default function Chat() {
                       </div>
                     )}
                   </div>
+
+                  {/* Optional Live Web Search Toggle */}
+                  {webSearchAvail?.enabled && (
+                    <button
+                      type="button"
+                      onClick={() => setUseWebSearch((prev) => (prev === true ? null : true))}
+                      title={
+                        useWebSearch === true
+                          ? `Web search forced ON (${webSearchAvail.provider})`
+                          : `Web search Auto (${webSearchAvail.provider}) — click to force web search`
+                      }
+                      className="inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
+                      style={{
+                        background: useWebSearch === true ? 'rgba(16,185,129,0.16)' : 'rgba(255,255,255,0.04)',
+                        border: useWebSearch === true ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        color: useWebSearch === true ? '#6EE7B7' : '#94A3B8',
+                      }}
+                    >
+                      <Search className={`w-3.5 h-3.5 ${useWebSearch === true ? 'text-emerald-400' : 'text-[#94A3B8]'}`} />
+                      <span className="hidden sm:inline">{useWebSearch === true ? 'Web On' : 'Web'}</span>
+                    </button>
+                  )}
 
                   {/* Interactive Document Scope Selector */}
                   <div className="relative" ref={docScopeRef}>

@@ -55,6 +55,14 @@ class Settings(BaseModel):
     jwt_access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.1")
+    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+    serper_api_key: str = os.getenv("SERPER_API_KEY", "")
+    enable_web_search: bool = os.getenv("ENABLE_WEB_SEARCH", "true").lower() in ("1", "true", "yes")
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "750"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "150"))
     top_k: int = int(os.getenv("TOP_K", "4"))
@@ -74,4 +82,11 @@ def reload_settings():
         os.environ[key] = val
     settings.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     settings.gemini_model = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+    settings.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    settings.openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    settings.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    settings.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "")
+    settings.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
+    settings.tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+    settings.serper_api_key = os.getenv("SERPER_API_KEY", "")
     return settings

@@ -409,6 +409,7 @@ export const chatApi = {
     explanation_level = 'intermediate',
     model = null,
     language = 'auto',
+    use_web_search = null,
     replace_from_message_id = null,
   }) => {
     if (isDemo()) {
@@ -468,6 +469,7 @@ export const chatApi = {
       explanation_level,
       ...(model ? { model } : {}),
       ...(language ? { language } : {}),
+      ...(use_web_search !== null ? { use_web_search } : {}),
       replace_from_message_id,
     });
     return response.data;
@@ -482,6 +484,7 @@ export const chatApi = {
     explanation_level = 'intermediate',
     model = null,
     language = 'auto',
+    use_web_search = null,
     replace_from_message_id = null,
     signal,
     onMeta,
@@ -498,6 +501,7 @@ export const chatApi = {
         explanation_level,
         model,
         language,
+        use_web_search,
         replace_from_message_id,
       });
       if (onMeta) {
@@ -559,6 +563,7 @@ export const chatApi = {
           explanation_level,
           ...(model ? { model } : {}),
           ...(language ? { language } : {}),
+          ...(use_web_search !== null ? { use_web_search } : {}),
           replace_from_message_id,
         }),
         signal: timeoutController.signal,
@@ -695,6 +700,22 @@ export const chatApi = {
       ...(model ? { model } : {}),
       ...(language ? { language } : {}),
     });
+    return response.data;
+  },
+
+  getModels: async () => {
+    if (isDemo()) {
+      return {
+        configured: true,
+        default_model: 'gemini-flash-lite-latest',
+        providers: [{ id: 'gemini', label: 'Google Gemini (Demo)', configured: true }],
+        models: [
+          { id: 'gemini-flash-lite-latest', label: 'Flash-Lite Latest', badge: 'Fast', desc: 'Demo simulation model', provider: 'gemini', configured: true },
+        ],
+        web_search: { enabled: false, provider: 'Demo' },
+      };
+    }
+    const response = await api.get('/chat/models');
     return response.data;
   },
 

@@ -82,6 +82,11 @@ class SourceCitation(BaseModel):
     text: str
     relevance_score: float
 
+class WebSourceCitation(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+
 # --- Chat Schemas ---
 class ChatRequest(BaseModel):
     question: str
@@ -89,14 +94,17 @@ class ChatRequest(BaseModel):
     document_ids: Optional[List[str]] = Field(default_factory=list)
     top_k: Optional[int] = 4
     explanation_level: Optional[str] = "intermediate"  # "beginner" | "intermediate" | "advanced"
-    mode: Optional[str] = "learn"  # "learn" | "exam" | "practice" | "code" | "research"
+    mode: Optional[str] = "learn"  # "learn" | "exam" | "practice" | "code" | "research" | "writing"
     model: Optional[str] = None
     language: Optional[str] = "auto"
+    use_web_search: Optional[bool] = None
     replace_from_message_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceCitation]
+    web_sources: List[WebSourceCitation] = Field(default_factory=list)
+    follow_up_suggestions: List[str] = Field(default_factory=list)
     conversation_id: str
     message_id: str
     user_message_id: Optional[str] = None
