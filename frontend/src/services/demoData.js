@@ -388,6 +388,24 @@ export function generateDemoChatResponse(question) {
     };
   }
 
+  if (/[\u0900-\u097F]/.test(clean)) {
+    return {
+      answer:
+        'नमस्ते! मैं बिल्कुल ठीक हूँ। 😊 आप हिंदी, हिंग्लिश या किसी भी भाषा में मुझसे बात कर सकते हैं या अपने नोट्स/PDF से जुड़े सवाल पूछ सकते हैं।',
+      grounded: false,
+      sources: [],
+    };
+  }
+
+  if (/\b(kaise ho|kaisi ho|kya haal|namaste|shukriya|dhanyawad|samjhao)\b/.test(clean)) {
+    return {
+      answer:
+        'Main ekdum badhiya hoon, shukriya! 😊 Aap Hindi, Hinglish ya English kisi bhi language mein chat kar sakte ho — batao aaj kya help chahiye?',
+      grounded: false,
+      sources: [],
+    };
+  }
+
   if (/^(how are you|how are u|how r u|how's it going|how is it going)\b/.test(clean)) {
     return {
       answer:

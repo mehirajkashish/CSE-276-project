@@ -11,7 +11,7 @@ import {
   UploadCloud, X, GraduationCap, Square, Pencil, Check,
   Search, Code2, FlaskConical, ClipboardList, Compass,
   FileText, PanelLeft, Settings, UserRound, Pin, PinOff,
-  ChevronDown, ArrowUp, Cpu,
+  ChevronDown, ArrowUp, Cpu, Globe,
 } from 'lucide-react';
 import ChatBubble from '../components/ChatBubble';
 import { chatApi, documentApi } from '../services/api';
@@ -39,6 +39,23 @@ const CHAT_MODELS = [
   { id: 'gemini-flash-latest',           label: 'Gemini Flash Latest',  badge: 'Balanced', desc: 'Richer multi-step reasoning & synthesis' },
   { id: 'gemini-3-flash-preview',        label: 'Gemini 3 Flash',       badge: 'Next-Gen', desc: 'Next-gen preview for deeper analysis' },
   { id: 'gemini-pro-latest',             label: 'Gemini Pro Latest',    badge: 'Deep',     desc: 'Complex proofs & code (subject to quota)' },
+];
+
+const CHAT_LANGUAGES = [
+  { id: 'auto',     label: 'Auto (Any)',    native: 'Matches your language', speech: '' },
+  { id: 'en',       label: 'English',       native: 'English',               speech: 'en-US' },
+  { id: 'hinglish', label: 'Hinglish',      native: 'Hindi + English mix',   speech: 'en-IN' },
+  { id: 'hi',       label: 'Hindi',         native: 'हिंदी',                  speech: 'hi-IN' },
+  { id: 'bn',       label: 'Bengali',       native: 'বাংলা',                  speech: 'bn-IN' },
+  { id: 'ta',       label: 'Tamil',         native: 'தமிழ்',                  speech: 'ta-IN' },
+  { id: 'mr',       label: 'Marathi',       native: 'मराठी',                  speech: 'mr-IN' },
+  { id: 'ur',       label: 'Urdu',          native: 'اردو',                   speech: 'ur-PK' },
+  { id: 'es',       label: 'Spanish',       native: 'Español',               speech: 'es-ES' },
+  { id: 'fr',       label: 'French',        native: 'Français',              speech: 'fr-FR' },
+  { id: 'de',       label: 'German',        native: 'Deutsch',               speech: 'de-DE' },
+  { id: 'ar',       label: 'Arabic',        native: 'العربية',                speech: 'ar-SA' },
+  { id: 'pt',       label: 'Portuguese',    native: 'Português',             speech: 'pt-BR' },
+  { id: 'ja',       label: 'Japanese',      native: '日本語',                 speech: 'ja-JP' },
 ];
 
 const QUICK_PROMPTS = [
@@ -327,8 +344,10 @@ export default function Chat() {
   const [docListOpen,     setDocListOpen]     = useState(false);
   const [docScopeOpen,    setDocScopeOpen]    = useState(false);
   const [modelMenuOpen,   setModelMenuOpen]   = useState(false);
+  const [langMenuOpen,    setLangMenuOpen]    = useState(false);
   const docScopeRef  = useRef(null);
   const modelMenuRef = useRef(null);
+  const langMenuRef  = useRef(null);
 
   /* ── Conversation state ── */
   const [conversations,        setConversations]        = useState([]);
@@ -354,6 +373,10 @@ export default function Chat() {
   const [selectedModel, setSelectedModel] = useState(() => {
     const saved = localStorage.getItem('studymind_chat_model');
     return CHAT_MODELS.some((m) => m.id === saved) ? saved : 'gemini-flash-lite-latest';
+  });
+  const [selectedLanguage, setSelectedLanguage] = useState(() => {
+    const saved = localStorage.getItem('studymind_chat_language');
+    return CHAT_LANGUAGES.some((l) => l.id === saved) ? saved : 'auto';
   });
 
   /* ── Upload ── */
@@ -381,12 +404,19 @@ export default function Chat() {
   }, [selectedModel]);
 
   useEffect(() => {
+    localStorage.setItem('studymind_chat_language', selectedLanguage);
+  }, [selectedLanguage]);
+
+  useEffect(() => {
     const onDocClick = (e) => {
       if (docScopeRef.current && !docScopeRef.current.contains(e.target)) {
         setDocScopeOpen(false);
       }
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
         setModelMenuOpen(false);
+      }
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target)) {
+        setLangMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -422,14 +452,17 @@ export default function Chat() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const r = new SR();
-    r.continuous = false; r.interimResults = true; r.lang = 'en-US';
+    const langMeta = CHAT_LANGUAGES.find((l) => l.id === selectedLanguage);
+    r.continuous = false;
+    r.interimResults = true;
+    r.lang = langMeta?.speech || (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
     r.onstart  = () => setIsListening(true);
     r.onresult = (e) => setInputQuestion(Array.from(e.results).map((x) => x[0].transcript).join(''));
     r.onerror  = () => setIsListening(false);
     r.onend    = () => setIsListening(false);
     recognitionRef.current = r;
     return () => recognitionRef.current?.abort();
-  }, []);
+  }, [selectedLanguage]);
 
   const toggleVoice = () => {
     if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
@@ -566,6 +599,7 @@ export default function Chat() {
         mode: chatMode,
         explanation_level: tutorLevel,
         model: selectedModel,
+        language: selectedLanguage,
         replace_from_message_id: replaceFromMessageId,
         signal: ctrl.signal,
         onMeta: (meta) => {
@@ -610,7 +644,7 @@ export default function Chat() {
     if (loading || isStreaming) return;
     setError(null); setLoading(true);
     try {
-      const res = await chatApi.runContextualAction({ action_type: actionType, conversation_id: activeConversationId, message_id: refMessage?.id || null, document_ids: selectedDocIds, explanation_level: actionType === 'explain_simpler' ? 'beginner' : tutorLevel, mode: chatMode, model: selectedModel });
+      const res = await chatApi.runContextualAction({ action_type: actionType, conversation_id: activeConversationId, message_id: refMessage?.id || null, document_ids: selectedDocIds, explanation_level: actionType === 'explain_simpler' ? 'beginner' : tutorLevel, mode: chatMode, model: selectedModel, language: selectedLanguage });
       const labels = { explain_simpler: 'Explain simpler', example: 'Give a worked example', summarize: 'Summarize key takeaways', mcqs: 'Generate practice MCQs', flashcards: 'Create flashcards', practice_questions: 'Give practice questions' };
       const now = new Date().toISOString();
       setMessages((prev) => [...(Array.isArray(prev) ? prev : []),
@@ -696,6 +730,7 @@ export default function Chat() {
 
   const activeModeObj  = CHAT_MODES.find((m) => m.id === chatMode) || CHAT_MODES[0];
   const activeModelObj = CHAT_MODELS.find((m) => m.id === selectedModel) || CHAT_MODELS[0];
+  const activeLangObj  = CHAT_LANGUAGES.find((l) => l.id === selectedLanguage) || CHAT_LANGUAGES[0];
   const safeMessages   = Array.isArray(messages) ? messages : [];
 
   const sidebarProps = {
@@ -1010,7 +1045,7 @@ export default function Chat() {
                 value={inputQuestion}
                 onChange={(e) => { setInputQuestion(e.target.value); autoResize(); }}
                 onKeyDown={handleKeyDown}
-                placeholder={isListening ? '🎤 Listening for your voice…' : `Message StudyMind AI… (${activeModeObj.label} · ${activeModelObj.label})`}
+                placeholder={isListening ? '🎤 Listening for your voice…' : `Ask in English, Hindi, Hinglish, or any language… (${activeModeObj.label})`}
                 disabled={loading}
                 className="w-full bg-transparent border-0 text-[14.5px] text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none px-4 pt-3.5 pb-2 leading-relaxed transition-colors"
                 style={{ minHeight: '46px', maxHeight: '180px' }}
@@ -1075,7 +1110,7 @@ export default function Chat() {
                   <div className="relative" ref={modelMenuRef}>
                     <button
                       type="button"
-                      onClick={() => { setModelMenuOpen((v) => !v); setDocScopeOpen(false); }}
+                      onClick={() => { setModelMenuOpen((v) => !v); setDocScopeOpen(false); setLangMenuOpen(false); }}
                       title={`Active AI model: ${activeModelObj.label} — ${activeModelObj.desc}`}
                       className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
                       style={{
@@ -1140,11 +1175,71 @@ export default function Chat() {
                     )}
                   </div>
 
+                  {/* Interactive Language Selector */}
+                  <div className="relative" ref={langMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => { setLangMenuOpen((v) => !v); setModelMenuOpen(false); setDocScopeOpen(false); }}
+                      title={`Reply language: ${activeLangObj.label} (${activeLangObj.native})`}
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
+                      style={{
+                        background: langMenuOpen || selectedLanguage !== 'auto' ? 'rgba(56,189,248,0.14)' : 'rgba(255,255,255,0.04)',
+                        border: langMenuOpen || selectedLanguage !== 'auto' ? '1px solid rgba(56,189,248,0.35)' : '1px solid rgba(255,255,255,0.08)',
+                        color: langMenuOpen || selectedLanguage !== 'auto' ? '#BAE6FD' : '#E2E8F0',
+                      }}
+                    >
+                      <Globe className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+                      <span>{activeLangObj.label}</span>
+                      <ChevronDown className={`w-3 h-3 text-[#94A3B8] transition-transform duration-200 ${langMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {langMenuOpen && (
+                      <div
+                        className="absolute bottom-10 left-0 w-72 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
+                        style={{
+                          background: 'rgba(15, 24, 42, 0.97)',
+                          backdropFilter: 'blur(22px)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          boxShadow: '0 18px 50px rgba(0,0,0,0.68)',
+                        }}
+                      >
+                        <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
+                          Chat Language (Auto or Fixed)
+                        </div>
+                        <div className="max-h-60 overflow-y-auto grid grid-cols-1 gap-0.5 scrollbar-thin">
+                          {CHAT_LANGUAGES.map((lang) => {
+                            const isCurrent = selectedLanguage === lang.id;
+                            return (
+                              <button
+                                key={lang.id}
+                                type="button"
+                                onClick={() => { setSelectedLanguage(lang.id); setLangMenuOpen(false); }}
+                                className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left transition-all duration-150 hover:bg-white/[0.04]"
+                                style={{
+                                  background: isCurrent ? 'rgba(56,189,248,0.14)' : 'transparent',
+                                  border: isCurrent ? '1px solid rgba(56,189,248,0.28)' : '1px solid transparent',
+                                }}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`text-xs font-medium ${isCurrent ? 'text-[#F1F5FC]' : 'text-[#CBD5E1]'}`}>
+                                    {lang.label}
+                                  </span>
+                                  <span className="text-[11px] text-[#64748B] truncate">{lang.native}</span>
+                                </div>
+                                {isCurrent && <Check className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Interactive Document Scope Selector */}
                   <div className="relative" ref={docScopeRef}>
                     <button
                       type="button"
-                      onClick={() => { setDocScopeOpen((v) => !v); setModelMenuOpen(false); }}
+                      onClick={() => { setDocScopeOpen((v) => !v); setModelMenuOpen(false); setLangMenuOpen(false); }}
                       title="Choose which PDFs to search"
                       className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium hover:scale-[1.02] active:scale-95 transition-all duration-200"
                       style={{

@@ -408,6 +408,7 @@ export const chatApi = {
     mode = 'learn',
     explanation_level = 'intermediate',
     model = null,
+    language = 'auto',
     replace_from_message_id = null,
   }) => {
     if (isDemo()) {
@@ -466,6 +467,7 @@ export const chatApi = {
       mode,
       explanation_level,
       ...(model ? { model } : {}),
+      ...(language ? { language } : {}),
       replace_from_message_id,
     });
     return response.data;
@@ -479,6 +481,7 @@ export const chatApi = {
     mode = 'learn',
     explanation_level = 'intermediate',
     model = null,
+    language = 'auto',
     replace_from_message_id = null,
     signal,
     onMeta,
@@ -494,6 +497,7 @@ export const chatApi = {
         mode,
         explanation_level,
         model,
+        language,
         replace_from_message_id,
       });
       if (onMeta) {
@@ -554,6 +558,7 @@ export const chatApi = {
           mode,
           explanation_level,
           ...(model ? { model } : {}),
+          ...(language ? { language } : {}),
           replace_from_message_id,
         }),
         signal: timeoutController.signal,
@@ -667,6 +672,7 @@ export const chatApi = {
     explanation_level = 'intermediate',
     mode = 'learn',
     model = null,
+    language = 'auto',
   }) => {
     if (isDemo()) {
       return chatApi.sendMessage({
@@ -676,6 +682,7 @@ export const chatApi = {
         mode,
         explanation_level,
         model,
+        language,
       });
     }
     const response = await api.post('/chat/action', {
@@ -686,6 +693,7 @@ export const chatApi = {
       explanation_level,
       mode,
       ...(model ? { model } : {}),
+      ...(language ? { language } : {}),
     });
     return response.data;
   },

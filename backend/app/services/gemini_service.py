@@ -82,15 +82,55 @@ GREETING_PATTERNS = [
     r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening|night|day)|howdy|yo|hiya)\b',
     r'^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+is\s+studymind|help\s+me)\b',
     r'^(what\'?s\s+up|sup|how\s+are\s+(you|u)|how\s+r\s+u|how\'?s\s+it\s+going|how\s+is\s+it\s+going|how\s+do\s+you\s+do|how\s+have\s+you\s+been)\b',
+    # Hindi & Hinglish greetings / check-ins
+    r'^(namaste|namaskar|pranam|kaise\s+ho|kaisi\s+ho|kaise\s+hain|kya\s+haal|sab\s+badh?iya|aur\s+batao|hello\s+bhai|hi\s+bhai|hey\s+yaar)\b',
+    r'^(नमस्ते|नमस्कार|कैसे\s+हो|कैसी\s+हो|कैसे\s+हैं|क्या\s+हाल|सब\s+बढ़िया)',
+    # Other global greetings
+    r'^(hola|bonjour|salut|ciao|hallo|guten\s+tag|ola|olá|salam|assalam|marhaba)\b',
 ]
 
 CASUAL_CHAT_PATTERNS = [
     *GREETING_PATTERNS,
-    r'^(thanks?|thank\s+you|thx|ty|appreciate\s+it)\b',
-    r'^(bye|goodbye|see\s+you|see\s+ya|take\s+care|gn|goodnight)\b',
-    r'^(ok|okay|cool|great|nice|awesome|got\s+it|alright|sure|fine|good|i\'?m\s+(good|fine|great|okay|ok|tired|bored|stressed))\b',
-    r'^(tell\s+me\s+a\s+joke|motivate\s+me|cheer\s+me\s+up)\b',
+    r'^(thanks?|thank\s+you|thx|ty|appreciate\s+it|shukriya|dhanyawad|dhanyavaad|gracias|merci|danke|shukran)\b',
+    r'^(धन्यवाद|शुक्रिया)',
+    r'^(bye|goodbye|see\s+you|see\s+ya|take\s+care|gn|goodnight|alvida|chalta\s+hu|chalti\s+hu)\b',
+    r'^(ok|okay|cool|great|nice|awesome|got\s+it|alright|sure|fine|good|theek\s+hai|thik\s+hai|accha|achha|sahi\s+hai|badh?iya|haan|hanji|hm+)\b',
+    r'^(ठीक\s+है|अच्छा|सही\s+है|बढ़िया)',
+    r'^(i\'?m\s+(good|fine|great|okay|ok|tired|bored|stressed)|main\s+(theek|thik|badh?iya|mast)\s+hu)\b',
+    r'^(tell\s+me\s+a\s+joke|joke\s+sunao|ek\s+joke|motivate\s+me|cheer\s+me\s+up)\b',
 ]
+
+LANGUAGE_INSTRUCTIONS = {
+    "auto": (
+        "LANGUAGE RULE (MATCH USER AUTOMATICALLY):\n"
+        "- Detect the exact language, script, and tone of the user's latest message and respond in that SAME language like ChatGPT.\n"
+        "- If the user writes in Hinglish (Hindi words written in English/Roman letters mixed with English, e.g. 'kaise ho', 'ye topic samjha do'), "
+        "reply naturally in friendly Hinglish (Roman script + English technical terms).\n"
+        "- If the user writes in Hindi (Devanagari script like 'हिंदी'), reply in clear, natural Hindi (Devanagari script).\n"
+        "- If the user writes in English or any other language (Spanish, French, Bengali, Tamil, Marathi, Urdu, Arabic, German, Japanese, etc.), "
+        "reply fluently and accurately in that exact language."
+    ),
+    "en": "LANGUAGE RULE:\n- Always respond in clear, natural English.",
+    "hinglish": (
+        "LANGUAGE RULE:\n"
+        "- Always respond in natural, friendly **Hinglish** (conversational Hindi written in Roman/English letters mixed with English technical terms, e.g., 'Yeh concept simple hai...'). "
+        "Keep code snippets, math formulas, and PDF citation filenames/page numbers accurate."
+    ),
+    "hi": (
+        "LANGUAGE RULE:\n"
+        "- हमेशा स्पष्ट और स्वाभाविक **हिंदी (Devanagari script)** में उत्तर दें। तकनीकी शब्दों, कोड और फॉर्मूलों को स्पष्ट रखें।"
+    ),
+    "bn": "LANGUAGE RULE:\n- Always respond fluently in natural **Bengali (বাংলা)** while keeping technical terms, code, and formulas clear.",
+    "ta": "LANGUAGE RULE:\n- Always respond fluently in natural **Tamil (தமிழ்)** while keeping technical terms, code, and formulas clear.",
+    "mr": "LANGUAGE RULE:\n- Always respond fluently in natural **Marathi (मराठी)** while keeping technical terms, code, and formulas clear.",
+    "ur": "LANGUAGE RULE:\n- Always respond fluently in natural **Urdu (اردو)** while keeping technical terms, code, and formulas clear.",
+    "es": "LANGUAGE RULE:\n- Always respond fluently in natural **Spanish (Español)**.",
+    "fr": "LANGUAGE RULE:\n- Always respond fluently in natural **French (Français)**.",
+    "de": "LANGUAGE RULE:\n- Always respond fluently in natural **German (Deutsch)**.",
+    "ar": "LANGUAGE RULE:\n- Always respond fluently in natural **Arabic (العربية)**.",
+    "pt": "LANGUAGE RULE:\n- Always respond fluently in natural **Portuguese (Português)**.",
+    "ja": "LANGUAGE RULE:\n- Always respond fluently in natural **Japanese (日本語)**.",
+}
 
 
 class GeminiService:
@@ -129,10 +169,47 @@ class GeminiService:
         """Natural conversational fallback used only when Gemini API is unavailable or for simple offline greetings."""
         return self._synthesize_conversational_reply(question, user_name=user_name)
 
-    def _synthesize_conversational_reply(self, question: str, user_name: Optional[str] = None) -> str:
+    def _detect_script_language(self, question: str) -> str:
+        q = (question or "").strip()
+        if re.search(r"[\u0900-\u097F]", q):
+            return "hi"
+        q_low = q.lower()
+        hinglish_markers = (
+            "kaise ho", "kaisi ho", "kya haal", "kya hai", "samjhao", "samjha do", "batao",
+            "shukriya", "dhanyawad", "theek hai", "thik hai", "namaste", "bhai", "yaar", "accha", "achha",
+        )
+        if any(m in q_low for m in hinglish_markers):
+            return "hinglish"
+        return "en"
+
+    def _synthesize_conversational_reply(
+        self,
+        question: str,
+        user_name: Optional[str] = None,
+        language: str = "auto",
+    ) -> str:
         q_lower = (question or "").strip().lower()
         first_name = (user_name or "").strip().split()[0] if user_name and user_name.strip() else ""
         name_comma = f", {first_name}" if first_name else ""
+        lang = (language or "auto").strip().lower()
+        if lang == "auto":
+            lang = self._detect_script_language(question)
+
+        if lang == "hi":
+            if any(p in q_lower for p in ["कैसे", "कैसी", "हाल"]):
+                return f"मैं बिल्कुल ठीक हूँ{name_comma}, पूछने के लिए धन्यवाद! 😊 आप कैसे हैं? आज किस विषय या टॉपिक पर बात करना चाहेंगे?"
+            if any(p in q_lower for p in ["धन्यवाद", "शुक्रिया"]):
+                return f"आपका स्वागत है{name_comma}! कभी भी कोई सवाल हो या कुछ नया सीखना हो तो बताइए।"
+            return f"नमस्ते{name_comma}! 👋 बताइए, आज मैं आपकी पढ़ाई या किसी भी सवाल में कैसे मदद कर सकता हूँ?"
+
+        if lang == "hinglish":
+            if any(p in q_lower for p in ["kaise ho", "kaisi ho", "kya haal", "how are you", "how are u"]):
+                return f"Main ekdum badhiya hoon{name_comma}, puchhne ke liye shukriya! 😊 Aap kaise ho? Aaj kya baat karein ya kaunsa topic samjhein?"
+            if any(p in q_lower for p in ["shukriya", "dhanyawad", "thank", "thx"]):
+                return f"Welcome{name_comma}! Jab bhi koi doubt ho ya bas baat karni ho, poochh lena."
+            if any(p in q_lower for p in ["joke"]):
+                return "Programmer ne dark mode kyun lagaya? Kyunki light mode mein bugs attract hote hain! 😄 Aur kuch poochhna hai?"
+            return f"Hey{name_comma}! 👋 Sab badhiya? Aap Hindi, Hinglish ya English kisi bhi language mein baat kar sakte ho — batao aaj kya help chahiye?"
 
         if any(p in q_lower for p in ["how are you", "how are u", "how r u", "how's it going", "how is it going", "how have you been", "how's everything"]):
             return (
@@ -153,14 +230,14 @@ class GeminiService:
         if any(p in q_lower for p in ["who are you", "what can you do", "what is studymind"]):
             return (
                 f"I'm **StudyMind AI**, your personal study partner and chat assistant! "
-                f"You can chat with me normally about anything, ask for step-by-step explanations, debug code, solve math, or upload PDFs for page-cited answers."
+                f"You can chat with me normally in English, Hindi, Hinglish, or any language, ask for step-by-step explanations, debug code, solve math, or upload PDFs for page-cited answers."
             )
         if re.match(r"^(ok|okay|cool|great|nice|awesome|got it|alright|sure|fine|good)\b", q_lower):
             return f"Sounds good{name_comma}! What's on your mind next?"
 
         return (
             f"Hey{name_comma}! 👋 How's it going?\n\n"
-            f"Feel free to chat with me normally about anything, or ask a question about your studies or uploaded PDFs."
+            f"Feel free to chat with me normally in English, Hindi, Hinglish, or any language, or ask a question about your studies or uploaded PDFs."
         )
 
     def _clean_slide_text(self, text: str) -> str:
@@ -186,25 +263,38 @@ class GeminiService:
         val = aliases.get(val, val)
         return val if val in MODE_INSTRUCTIONS else "learn"
 
+    def normalize_language(self, language: Optional[str]) -> str:
+        val = (language or "auto").strip().lower()
+        return val if val else "auto"
+
+    def _build_language_rule(self, language: Optional[str] = "auto") -> str:
+        lang = self.normalize_language(language)
+        if lang in LANGUAGE_INSTRUCTIONS:
+            return LANGUAGE_INSTRUCTIONS[lang]
+        return f"LANGUAGE RULE:\n- Respond fluently and naturally in **{language}**."
+
     def build_system_instruction(
         self,
         level: Optional[str] = "intermediate",
         mode: Optional[str] = "learn",
+        language: Optional[str] = "auto",
         has_citations: bool = False,
         strict_doc_missing: bool = False,
         is_casual: bool = False,
     ) -> str:
+        lang_rule = self._build_language_rule(language)
         if is_casual:
             return (
-                "You are StudyMind AI, a friendly, helpful personal AI assistant and study companion. "
+                "You are StudyMind AI, a friendly, helpful multilingual personal AI assistant and study companion. "
                 "The user is chatting casually (greeting, check-in, thanks, small talk, or general everyday chat). "
                 "Reply naturally, warmly, and concisely in plain conversational prose like ChatGPT. "
-                "Do NOT force academic headings, bulleted rubrics, tables, or quizzes unless the user asks a study question."
+                "Do NOT force academic headings, bulleted rubrics, tables, or quizzes unless the user asks a study question.\n\n"
+                + lang_rule
             )
 
         lvl = self.normalize_level(level)
         md = self.normalize_mode(mode)
-        parts = [SYSTEM_INSTRUCTION, LEVEL_INSTRUCTIONS[lvl], MODE_INSTRUCTIONS[md]]
+        parts = [SYSTEM_INSTRUCTION, lang_rule, LEVEL_INSTRUCTIONS[lvl], MODE_INSTRUCTIONS[md]]
         if has_citations:
             parts.append(
                 "GROUNDING RULE:\n"
@@ -226,6 +316,7 @@ class GeminiService:
         user_name: Optional[str] = None,
         level: str = "intermediate",
         mode: str = "learn",
+        language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Tuple[str, str, bool]:
@@ -233,6 +324,7 @@ class GeminiService:
         sys_inst = self.build_system_instruction(
             level=level,
             mode=mode,
+            language=language,
             has_citations=False,
             strict_doc_missing=strict_doc_missing and not is_casual,
             is_casual=is_casual,
@@ -326,12 +418,13 @@ class GeminiService:
         level: str = "intermediate",
         mode: str = "learn",
         model: Optional[str] = None,
+        language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Answers normal conversational messages and general academic queries when no PDF matches.
-        Adapts to casual chat vs explanation depth, smart chat mode, and prior conversation history.
+        Adapts to user language, casual chat vs explanation depth, smart chat mode, and prior conversation history.
         """
         api_key = settings.gemini_api_key.strip()
         model_name = self._resolve_model_name(model)
@@ -340,6 +433,7 @@ class GeminiService:
             user_name=user_name,
             level=level,
             mode=mode,
+            language=language,
             strict_doc_missing=strict_doc_missing,
             searched_docs=searched_docs,
         )
@@ -368,6 +462,7 @@ class GeminiService:
             user_name=user_name,
             level=level,
             mode=mode,
+            language=language,
             conversation_history=conversation_history,
             strict_doc_missing=strict_doc_missing,
             searched_docs=searched_docs,
@@ -385,12 +480,13 @@ class GeminiService:
         user_name: Optional[str] = None,
         level: str = "intermediate",
         mode: str = "learn",
+        language: str = "auto",
         conversation_history: Optional[List[Dict[str, str]]] = None,
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> str:
         if self.is_casual_conversation(question):
-            return self._synthesize_conversational_reply(question, user_name=user_name)
+            return self._synthesize_conversational_reply(question, user_name=user_name, language=language)
 
         q_clean = question.strip()
         q_lower = q_clean.lower()
@@ -493,6 +589,7 @@ class GeminiService:
         citations: List[SourceCitation],
         level: str = "intermediate",
         mode: str = "learn",
+        language: str = "auto",
     ) -> Tuple[str, str]:
         context_blocks = []
         for i, cite in enumerate(citations, 1):
@@ -502,13 +599,13 @@ class GeminiService:
                 f"[Source {i}: {cite.filename} | Page {cite.page_number} | Relevance: {score_pct}%]\n{clean_c_text}\n"
             )
         formatted_context = "\n---\n".join(context_blocks)
-        sys_inst = self.build_system_instruction(level=level, mode=mode, has_citations=True)
+        sys_inst = self.build_system_instruction(level=level, mode=mode, language=language, has_citations=True)
 
         user_prompt = (
             f"STUDY MATERIALS CONTEXT:\n{formatted_context}\n\n"
             f"STUDENT'S QUESTION:\n{question}\n\n"
             f"INSTRUCTIONS:\n"
-            f"Answer clearly and thoroughly using your active explanation level and smart chat mode. "
+            f"Answer clearly and thoroughly using your active explanation level, smart chat mode, and language rule. "
             f"Ground your facts strictly in the retrieved STUDY MATERIALS CONTEXT above, citing sources inline as [Filename, Page X] where helpful. "
             f"If part of the question is not covered by the context, explicitly state what is missing rather than guessing or inventing citations."
         )
@@ -523,6 +620,7 @@ class GeminiService:
         level: str = "intermediate",
         mode: str = "learn",
         model: Optional[str] = None,
+        language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -538,11 +636,12 @@ class GeminiService:
                 level=level,
                 mode=mode,
                 model=model,
+                language=language,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
             )
 
-        sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
+        sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode, language=language)
         api_key = settings.gemini_api_key.strip()
         model_name = self._resolve_model_name(model)
 
@@ -687,6 +786,7 @@ class GeminiService:
             raise Exception(last_error or "Gemini stream connection failed.")
 
         try:
+            resp.encoding = "utf-8"
             for raw_line in resp.iter_lines(decode_unicode=True):
                 if not raw_line or not raw_line.startswith("data:"):
                     continue
@@ -719,6 +819,7 @@ class GeminiService:
         level: str = "intermediate",
         mode: str = "learn",
         model: Optional[str] = None,
+        language: str = "auto",
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> Generator[Dict[str, Any], None, None]:
@@ -731,13 +832,14 @@ class GeminiService:
         is_casual = False
 
         if citations:
-            sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
+            sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode, language=language)
         else:
             sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
                 question=question,
                 user_name=user_name,
                 level=level,
                 mode=mode,
+                language=language,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
             )
@@ -771,6 +873,7 @@ class GeminiService:
                 user_name=user_name,
                 level=level,
                 mode=mode,
+                language=language,
                 conversation_history=conversation_history,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,

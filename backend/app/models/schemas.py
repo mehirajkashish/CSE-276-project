@@ -91,6 +91,7 @@ class ChatRequest(BaseModel):
     explanation_level: Optional[str] = "intermediate"  # "beginner" | "intermediate" | "advanced"
     mode: Optional[str] = "learn"  # "learn" | "exam" | "practice" | "code" | "research"
     model: Optional[str] = None
+    language: Optional[str] = "auto"
     replace_from_message_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
@@ -122,6 +123,7 @@ class ChatActionRequest(BaseModel):
     explanation_level: Optional[str] = "intermediate"
     mode: Optional[str] = "learn"
     model: Optional[str] = None
+    language: Optional[str] = "auto"
 
 class MessageResponse(BaseModel):
     id: str
