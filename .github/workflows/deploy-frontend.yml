@@ -39,7 +39,7 @@ jobs:
       - name: Build Production Frontend
         working-directory: ./frontend
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL || '/api' }}
+          VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://studymind-backend-8lrp.onrender.com/api' }}
           VITE_BASE_PATH: ${{ github.event.repository.name == format('{0}.github.io', github.repository_owner) && '/' || format('/{0}/', github.event.repository.name) }}
         run: npm run build
 

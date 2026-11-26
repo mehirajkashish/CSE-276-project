@@ -23,8 +23,16 @@ GREETING_PATTERNS = [
 
 
 class GeminiService:
+    FALLBACK_MODELS = [
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+
     def __init__(self):
-        self.default_model = "gemini-1.5-flash"
+        self.default_model = "gemini-flash-lite-latest"
 
     def is_configured(self) -> bool:
         return bool(settings.gemini_api_key and settings.gemini_api_key.strip())
@@ -207,6 +215,7 @@ class GeminiService:
                 "model_used": model_name
             }
         except Exception as e:
+            print(f"[GeminiService] Gemini call failed for RAG query: {e}")
             local_ans = self._synthesize_local_context(question, citations)
             return {
                 "answer": local_ans,
@@ -215,8 +224,6 @@ class GeminiService:
             }
 
     def _call_gemini_api(self, api_key: str, model: str, prompt: str) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-
         payload = {
             "contents": [
                 {
@@ -232,15 +239,28 @@ class GeminiService:
             }
         }
 
-        resp = requests.post(url, json=payload, timeout=30.0)
-        if resp.status_code != 200:
+        headers = {"x-goog-api-key": api_key}
+        candidates_to_try = [model] + [m for m in self.FALLBACK_MODELS if m != model]
+        resp = None
+        last_error = None
+        for idx, candidate_model in enumerate(candidates_to_try):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:generateContent"
+            resp = requests.post(url, headers=headers, json=payload, timeout=30.0)
+            if resp.status_code == 200:
+                break
             err_text = resp.text
             try:
                 err_json = resp.json()
                 err_msg = err_json.get("error", {}).get("message", err_text)
             except Exception:
                 err_msg = err_text
-            raise Exception(f"Gemini API Error ({resp.status_code}): {err_msg}")
+            last_error = f"Gemini API Error ({resp.status_code}): {err_msg}"
+            # Fall back to the next Flash candidate only for retired/rate-limited/overloaded models
+            if resp.status_code not in (404, 429, 503) or idx == len(candidates_to_try) - 1:
+                raise Exception(last_error)
+
+        if resp is None or resp.status_code != 200:
+            raise Exception(last_error or "Gemini API call failed.")
 
         data = resp.json()
         candidates = data.get("candidates", [])
@@ -252,6 +272,9 @@ class GeminiService:
             finish_reason = candidates[0].get("finishReason", "UNKNOWN")
             raise Exception(f"No response text received (finish reason: {finish_reason}).")
 
+        answer_chunks = [p.get("text", "") for p in text_parts if not p.get("thought") and p.get("text")]
+        if answer_chunks:
+            return "\n".join(answer_chunks).strip()
         return text_parts[0].get("text", "")
 
     def _synthesize_local_context(self, question: str, citations: List[SourceCitation]) -> str:

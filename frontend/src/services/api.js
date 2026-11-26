@@ -21,16 +21,48 @@ export function getBasePath() {
   return '';
 }
 
-const DEFAULT_API_URL = import.meta.env.VITE_API_URL || '/api';
+const HOSTED_BACKEND_URL = 'https://studymind-backend-8lrp.onrender.com/api';
+const RETIRED_API_HOSTS = new Set([
+  'studymind-backend-cy7w.onrender.com',
+  'studymind-backend-96yl.onrender.com',
+]);
+
+function isRetiredApiUrl(url) {
+  if (!url) return false;
+  try {
+    return RETIRED_API_HOSTS.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function getDefaultApiUrl() {
+  const envUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+  if (envUrl && envUrl !== '/api' && !isRetiredApiUrl(envUrl)) {
+    return envUrl;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host.endsWith('.github.io') || host.endsWith('.vercel.app')) {
+      return HOSTED_BACKEND_URL;
+    }
+  }
+  return envUrl || '/api';
+}
 
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined') {
     const custom = localStorage.getItem('studymind_api_url');
     if (custom && custom.trim()) {
-      return custom.trim().replace(/\/+$/, '');
+      const cleaned = custom.trim().replace(/\/+$/, '');
+      if (isRetiredApiUrl(cleaned)) {
+        localStorage.removeItem('studymind_api_url');
+      } else {
+        return cleaned;
+      }
     }
   }
-  return DEFAULT_API_URL;
+  return getDefaultApiUrl();
 }
 
 export function setApiBaseUrl(url) {
@@ -46,7 +78,7 @@ export function setApiBaseUrl(url) {
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 60000,
+  timeout: 95000,
 });
 
 // Check if currently in interactive demo mode

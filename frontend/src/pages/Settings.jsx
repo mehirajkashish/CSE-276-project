@@ -24,7 +24,7 @@ export default function Settings() {
   const [settings, setSettings] = useState(null);
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-flash-lite-latest');
   const [chunkSize, setChunkSize] = useState(750);
   const [chunkOverlap, setChunkOverlap] = useState(150);
   const [topK, setTopK] = useState(4);
@@ -35,7 +35,7 @@ export default function Settings() {
     try {
       const data = await systemApi.getSettings();
       setSettings(data);
-      setSelectedModel(data.gemini_model || 'gemini-1.5-flash');
+      setSelectedModel(data.gemini_model || 'gemini-flash-lite-latest');
       setChunkSize(data.chunk_size || 750);
       setChunkOverlap(data.chunk_overlap || 150);
       setTopK(data.top_k || 4);
@@ -206,9 +206,12 @@ export default function Settings() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="w-full rounded-xl bg-[#0D0D0D] border border-[#262626] text-xs text-white p-2.5 focus:outline-none focus:border-white"
               >
-                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Recommended - Fast & High Quota)</option>
-                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next-Gen Flash)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Academic Reasoning)</option>
+                <option value="gemini-flash-lite-latest">Gemini Flash-Lite Latest (Recommended - Fast & Reliable)</option>
+                <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (High Availability)</option>
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Fast Lite)</option>
+                <option value="gemini-3.5-flash">Gemini 3.5 Flash (Standard Flash)</option>
+                <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                <option value="gemini-pro-latest">Gemini Pro Latest (Deep Reasoning)</option>
               </select>
             </div>
 
@@ -234,7 +237,7 @@ export default function Settings() {
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
-                placeholder="AIzaSy... (Paste your Gemini API key from Google AI Studio)"
+                placeholder="AQ.... or AIzaSy... (Paste your Gemini API key from Google AI Studio)"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="w-full rounded-xl bg-[#0D0D0D] border border-[#262626] text-xs text-white pl-3 pr-10 py-2.5 focus:outline-none focus:border-white font-mono placeholder-[#666666]"

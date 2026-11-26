@@ -85,9 +85,13 @@ export default function Login() {
       setShowBackendConfig(true);
       return `Backend API endpoint not found at "${currentApi}" (HTTP ${status}). Static hosting cannot process ${actionLabel} without a live FastAPI backend URL—configure your backend URL below or set VITE_API_URL.`;
     }
+    if (err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout')) {
+      setShowBackendConfig(true);
+      return `Request to "${currentApi}" timed out. Render free-tier servers can take up to 60–90s to wake from sleep—wait a few seconds and click Sign In again, or verify your backend URL below.`;
+    }
     if (!err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
       setShowBackendConfig(true);
-      return `Cannot connect to backend server at "${currentApi}". Start the local FastAPI server or enter your deployed Render/Railway API URL below.`;
+      return `Cannot connect to backend server at "${currentApi}". Wait a few seconds if Render is waking up, or verify/reset the FastAPI backend URL below.`;
     }
     return err.message || `${actionLabel} failed. Please try again.`;
   };
@@ -101,6 +105,14 @@ export default function Login() {
     setBackendUrlInput(getApiBaseUrl());
     setErrorMessage('');
     setSuccessMessage(`Backend API URL updated to "${getApiBaseUrl()}". Try signing in now.`);
+  };
+
+  const handleResetBackendUrl = () => {
+    setApiBaseUrl('');
+    const fallbackUrl = getApiBaseUrl();
+    setBackendUrlInput(fallbackUrl);
+    setErrorMessage('');
+    setSuccessMessage(`Backend API URL reset to default ("${fallbackUrl}"). Try signing in now.`);
   };
 
   // Password strength calculation
@@ -391,14 +403,14 @@ export default function Login() {
               {showBackendConfig && (
                 <div className="pt-2 border-t border-rose-500/20 space-y-1.5">
                   <label className="block text-[11px] font-medium text-rose-200">
-                    FastAPI Backend URL (e.g., https://studymind-backend.onrender.com/api)
+                    FastAPI Backend URL (e.g., https://studymind-backend-8lrp.onrender.com/api)
                   </label>
                   <div className="flex gap-1.5">
                     <input
                       type="text"
                       value={backendUrlInput}
                       onChange={(e) => setBackendUrlInput(e.target.value)}
-                      placeholder="https://your-backend.onrender.com/api"
+                      placeholder="https://studymind-backend-8lrp.onrender.com/api"
                       className="flex-1 px-2.5 py-1.5 rounded-lg bg-[#0D0D0D] border border-[#262626] text-white text-[11px] font-mono focus:outline-none focus:border-white"
                     />
                     <button
@@ -407,6 +419,14 @@ export default function Login() {
                       className="px-2.5 py-1.5 rounded-lg bg-white text-black text-[11px] font-semibold hover:bg-neutral-200 transition"
                     >
                       Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetBackendUrl}
+                      title="Reset to default backend URL"
+                      className="px-2.5 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#333] text-neutral-300 text-[11px] font-medium hover:text-white hover:border-neutral-500 transition"
+                    >
+                      Reset
                     </button>
                   </div>
                 </div>

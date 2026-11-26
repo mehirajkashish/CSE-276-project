@@ -15,7 +15,7 @@ services:
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=4320
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-flash-lite-latest}
       - CHUNK_SIZE=750
       - CHUNK_OVERLAP=150
       - TOP_K=4
