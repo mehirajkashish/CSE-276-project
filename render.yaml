@@ -33,3 +33,5 @@ services:
         value: 4
       - key: SIMILARITY_THRESHOLD
         value: 0.15
+      - key: EMBEDDING_MODEL
+        value: hybrid-semantic

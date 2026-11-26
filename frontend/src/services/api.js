@@ -353,6 +353,7 @@ export const documentApi = {
       formData.append('files', files[i]);
     }
     const response = await api.post('/documents/upload', formData, {
+      timeout: 180000,
       onUploadProgress,
     });
     return response.data;

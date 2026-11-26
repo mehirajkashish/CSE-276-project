@@ -6,27 +6,41 @@ from typing import List
 import numpy as np
 from app.core.config import settings
 
-# Check if sentence_transformers is installed
+def _should_use_sentence_transformers() -> bool:
+    configured = (settings.embedding_model or "hybrid-semantic").strip().lower()
+    return configured not in ("", "hybrid-semantic", "dense-semantic", "local")
+
+
+# Only enable heavy PyTorch SentenceTransformers when explicitly configured
 HAS_SENTENCE_TRANSFORMERS = False
 st_model = None
-try:
-    from sentence_transformers import SentenceTransformer
-    HAS_SENTENCE_TRANSFORMERS = True
-except Exception:
-    HAS_SENTENCE_TRANSFORMERS = False
+if _should_use_sentence_transformers():
+    try:
+        from sentence_transformers import SentenceTransformer  # noqa: F401
+        HAS_SENTENCE_TRANSFORMERS = True
+    except Exception:
+        HAS_SENTENCE_TRANSFORMERS = False
 
 
 class EmbeddingGenerator:
     def __init__(self, vector_dim: int = 384):
         self.vector_dim = vector_dim
         self._st_model = None
+        self._st_failed = False
 
     def _get_st_model(self):
         global st_model
+        if not _should_use_sentence_transformers() or self._st_failed:
+            return None
         if HAS_SENTENCE_TRANSFORMERS and self._st_model is None:
             try:
-                self._st_model = SentenceTransformer('all-MiniLM-L6-v2')
-            except Exception:
+                from sentence_transformers import SentenceTransformer
+                model_name = settings.embedding_model.strip() or "all-MiniLM-L6-v2"
+                self._st_model = SentenceTransformer(model_name)
+                st_model = self._st_model
+            except Exception as e:
+                print(f"[Embeddings] Falling back to hybrid-semantic dense vectorizer: {e}")
+                self._st_failed = True
                 self._st_model = None
         return self._st_model
 

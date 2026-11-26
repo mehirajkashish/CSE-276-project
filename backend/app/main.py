@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings, UPLOADS_DIR
@@ -21,7 +22,24 @@ app = FastAPI(
     description="StudyMind AI – Production RAG Study Assistant with JWT Auth & SQLite Persistence"
 )
 
-# Robust CORS Configuration
+# Production Security Headers Middleware (registered before CORSMiddleware so CORS runs outermost)
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        print(f"[API] Unhandled error on {request.method} {request.url.path}: {exc}")
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {str(exc)}"},
+        )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+# Robust CORS Configuration (outermost middleware so even error responses carry CORS headers)
 raw_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 is_wildcard = "*" in raw_origins
 
@@ -34,16 +52,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
-# Production Security Headers Middleware
-@app.middleware("http")
-async def add_security_headers(request, call_next):
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    return response
 
 # Mount uploads directory for PDF viewing
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")

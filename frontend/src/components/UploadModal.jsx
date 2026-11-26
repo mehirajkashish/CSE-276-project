@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, UploadCloud, FileText, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { documentApi } from '../services/api';
+import { documentApi, ensureBackendConnected, getApiBaseUrl } from '../services/api';
 
 export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
   const [dragActive, setDragActive] = useState(false);
@@ -85,12 +85,38 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     setProcessingStatus('Uploading PDFs to backend...');
 
     try {
-      const result = await documentApi.uploadDocuments(selectedFiles, (progressEvent) => {
-        if (progressEvent.total) {
-          const percent = Math.round((progressEvent.loaded * 50) / progressEvent.total);
-          setUploadProgress(percent);
+      const uploadOnce = () =>
+        documentApi.uploadDocuments(selectedFiles, (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 50) / progressEvent.total);
+            setUploadProgress(percent);
+          }
+        });
+
+      let result;
+      try {
+        result = await uploadOnce();
+      } catch (firstErr) {
+        const status = firstErr.response?.status;
+        const isConnErr =
+          !firstErr.response ||
+          firstErr.code === 'ERR_NETWORK' ||
+          firstErr.code === 'ECONNABORTED' ||
+          status === 502 ||
+          status === 503 ||
+          status === 504;
+        if (isConnErr) {
+          setProcessingStatus('Reconnecting to backend server & retrying upload...');
+          const check = await ensureBackendConnected();
+          if (check.connected) {
+            result = await uploadOnce();
+          } else {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
         }
-      });
+      }
 
       setUploadProgress(85);
       setProcessingStatus('Extracting text with PyMuPDF, generating embeddings & indexing into FAISS...');
@@ -104,7 +130,11 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
     } catch (err) {
       setUploading(false);
       setUploadProgress(0);
-      const msg = err.response?.data?.detail || err.message || 'Failed to process and index PDF.';
+      const isConnErr =
+        !err.response || err.code === 'ERR_NETWORK' || err.code === 'ECONNABORTED';
+      const msg = isConnErr
+        ? `Cannot reach backend at "${getApiBaseUrl()}". If the free Render server just restarted or is waking up, wait a few seconds and try uploading again.`
+        : err.response?.data?.detail || err.message || 'Failed to process and index PDF.';
       setError(msg);
     }
   };
@@ -152,7 +182,7 @@ export default function UploadModal({ isOpen, onClose, onUploadSuccess }) {
                   {successInfo.documents.map((doc, i) => (
                     <div key={i} className="flex justify-between py-1 border-b border-[#222222] last:border-none">
                       <span className="truncate pr-2">{doc.filename}</span>
-                      <span className="text-emerald-400 shrink-0 font-medium">{doc.chunk_count} chunks ({doc.page_count} pages)</span>
+                      <span className="text-emerald-400 shrink-0 font-medium">{doc.total_chunks ?? doc.chunk_count ?? 0} chunks ({doc.total_pages ?? doc.page_count ?? 0} pages)</span>
                     </div>
                   ))}
                 </div>
