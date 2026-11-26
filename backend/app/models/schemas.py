@@ -180,6 +180,8 @@ class DashboardStatsResponse(BaseModel):
 class StudySummaryRequest(BaseModel):
     document_id: str
     style: Optional[str] = "detailed"  # "brief", "detailed", "bulleted"
+    focus: Optional[str] = None
+    model: Optional[str] = None
 
 class FlashcardItem(BaseModel):
     question: str
@@ -191,6 +193,8 @@ class FlashcardResponse(BaseModel):
     document_id: str
     filename: str
     flashcards: List[FlashcardItem]
+    ai_generated: Optional[bool] = None
+    model_used: Optional[str] = None
 
 class QuizOption(BaseModel):
     id: str
@@ -207,10 +211,13 @@ class QuizResponse(BaseModel):
     document_id: str
     filename: str
     quiz: List[QuizItem]
+    ai_generated: Optional[bool] = None
+    model_used: Optional[str] = None
 
 class ExplainSimplyRequest(BaseModel):
     topic: str
     document_id: Optional[str] = None
+    model: Optional[str] = None
 
 class RevisionNotesResponse(BaseModel):
     document_id: str
@@ -219,11 +226,15 @@ class RevisionNotesResponse(BaseModel):
     high_yield_points: List[str]
     important_definitions: List[Dict[str, str]]
     potential_exam_questions: List[str]
+    ai_generated: Optional[bool] = None
+    model_used: Optional[str] = None
 
 class ImportantTopicsResponse(BaseModel):
     document_id: str
     filename: str
     topics: List[Dict[str, Any]]
+    ai_generated: Optional[bool] = None
+    model_used: Optional[str] = None
 
 # --- Settings Schemas ---
 class SettingsUpdate(BaseModel):

@@ -53,6 +53,7 @@ export default function App() {
             <Route path="/documents" element={<Documents />} />
             <Route path="/viewer" element={<Viewer />} />
             <Route path="/study-tools" element={<StudyTools />} />
+            <Route path="/study-tools/:toolId" element={<StudyTools />} />
             <Route path="/exams" element={<Exams />} />
             <Route path="/flashcards" element={<FlashcardsPage />} />
             <Route path="/planner" element={<Planner />} />
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/workspace/documents" element={<Documents />} />
             <Route path="/workspace/viewer" element={<Viewer />} />
             <Route path="/workspace/study-tools" element={<StudyTools />} />
+            <Route path="/workspace/study-tools/:toolId" element={<StudyTools />} />
             <Route path="/workspace/exams" element={<Exams />} />
             <Route path="/workspace/flashcards" element={<FlashcardsPage />} />
             <Route path="/workspace/planner" element={<Planner />} />

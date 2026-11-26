@@ -804,44 +804,50 @@ export const dashboardApi = {
 
 // --- Study Toolkit API ---
 export const studyApi = {
-  generateSummary: async ({ document_id, style = 'detailed' }) => {
+  generateSummary: async ({ document_id, style = 'detailed', focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         status: 'success',
         document_id: document_id || 'demo-doc-cs101',
         summary: DEMO_SUMMARY,
+        ai_generated: true,
+        model_used: 'demo-preview',
       };
     }
-    const response = await api.post('/study/summary', { document_id, style });
+    const response = await api.post('/study/summary', { document_id, style, focus, model });
     return response.data;
   },
 
-  generateFlashcards: async ({ document_id, count = 6 }) => {
+  generateFlashcards: async ({ document_id, count = 6, focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         status: 'success',
         flashcards: DEMO_FLASHCARDS.slice(0, count),
+        ai_generated: true,
+        model_used: 'demo-preview',
       };
     }
-    const response = await api.post('/study/flashcards', { document_id, count });
+    const response = await api.post('/study/flashcards', { document_id, count, focus, model });
     return response.data;
   },
 
-  generateQuiz: async ({ document_id, count = 5 }) => {
+  generateQuiz: async ({ document_id, count = 5, focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         status: 'success',
         quiz: DEMO_QUIZ.slice(0, count),
+        ai_generated: true,
+        model_used: 'demo-preview',
       };
     }
-    const response = await api.post('/study/quiz', { document_id, count });
+    const response = await api.post('/study/quiz', { document_id, count, focus, model });
     return response.data;
   },
 
-  explainSimply: async ({ topic, document_id = null }) => {
+  explainSimply: async ({ topic, document_id = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
@@ -851,57 +857,66 @@ export const studyApi = {
           `Think of **${topic || 'Backpropagation'}** like a team of postal workers passing letters along a line. ` +
           `If a letter is misdelivered at the end of the chain, each worker reviews their turn and slightly tweaks their hand-off rule so future deliveries become more accurate!`,
         key_analogy: 'Iterative feedback correction in a relay line.',
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/explain-simply', { topic, document_id });
+    const response = await api.post('/study/explain-simply', { topic, document_id, model });
     return response.data;
   },
 
-  generateRevisionNotes: async ({ document_id }) => {
+  generateRevisionNotes: async ({ document_id, focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         status: 'success',
-        notes: [
+        title: 'Demo Exam Revision Sheet',
+        high_yield_points: [
           'Attention(Q, K, V) = softmax(QK^T / √d_k)V prevents gradient vanishing.',
-          'Radon-222 is a major natural inhalation hazard arising from rock decay chains.',
-          'The Schrödinger equation describes quantum state evolution with probability density |Ψ|².',
+          'Always verify boundary constraints before algebraic derivation.',
         ],
+        important_definitions: [
+          { term: 'Self-Attention', definition: 'Computes pairwise token interactions across a sequence.' },
+        ],
+        potential_exam_questions: [
+          'Why do Transformers scale dot products by 1/√d_k?',
+        ],
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/revision-notes', { document_id });
+    const response = await api.post('/study/revision-notes', { document_id, focus, model });
     return response.data;
   },
 
-  generateImportantTopics: async ({ document_id }) => {
+  generateImportantTopics: async ({ document_id, model = null }) => {
     if (isDemo()) {
       return {
         status: 'success',
         topics: [
-          'Scaled Dot-Product Attention & Multi-Head Self Attention',
-          'Naturally Occurring vs. Anthropogenic Radiation Hazards',
-          'Wave Function Normalization and Born Probability Interpretation',
+          { title: 'Scaled Dot-Product Attention', importance: 'High', page_number: 3, summary: 'Prevents softmax gradient saturation.' },
         ],
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/important-topics', { document_id });
+    const response = await api.post('/study/important-topics', { document_id, model });
     return response.data;
   },
 
-  generateAiNotes: async ({ document_id, depth = 'comprehensive' }) => {
+  generateAiNotes: async ({ document_id, depth = 'comprehensive', focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         document_id,
         filename: 'demo-curriculum.pdf',
-        notes: `# 📚 Comprehensive Lecture Notes: Deep Learning & Neural Architectures\n\n**Subject Area:** Transformers & Deep Learning | **Mode:** High-Yield Masterclass\n\n---\n\n## 1. 🎯 Executive Learning Objectives\n- Understand the foundational definitions of Self-Attention and multi-head projections.\n- Master the variance normalization mechanics that prevent vanishing softmax gradients.\n- Apply attention matrices to NLP and Computer Vision exam problems.\n\n---\n\n## 2. 🏛️ Core Definitions & Theoretical Pillars\n### 🔹 Scaled Dot-Product Attention\n> Attention(Q, K, V) = softmax(QK^T / √d_k)V enables direct modeling of dependencies regardless of sequential distance.\n\n### 🔹 Positional Encoding\n> Injects sinusoidal frequency functions into embeddings to retain spatial ordering without recurrence.\n\n---\n\n## 3. ⚡ High-Yield Exam Takeaways\n1. Always normalize dot products by √d_k to keep softmax in regions with healthy non-zero gradients.\n2. Multi-head attention allows the model to jointly attend to information at different positions.`
+        notes: `# Comprehensive Lecture Notes\n\n## Core Concepts\n- Self-Attention enables direct modeling of dependencies regardless of distance.`,
+        ai_generated: true,
+        model_used: 'demo-preview',
       };
     }
-    const response = await api.post('/study/ai-notes', { document_id, depth });
+    const response = await api.post('/study/ai-notes', { document_id, depth, focus, model });
     return response.data;
   },
 
-  generateMindMap: async ({ document_id }) => {
+  generateMindMap: async ({ document_id, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
@@ -914,35 +929,20 @@ export const studyApi = {
               id: 'b1',
               name: 'Attention Mechanisms',
               children: [
-                { id: 'b1_1', name: 'Scaled Dot-Product' },
-                { id: 'b1_2', name: 'Multi-Head Attention' }
-              ]
+                { id: 'b1_1', name: 'Scaled Dot-Product', note: 'Normalizes attention scores by √d_k.' },
+                { id: 'b1_2', name: 'Multi-Head Attention', note: 'Parallel subspace projections.' },
+              ],
             },
-            {
-              id: 'b2',
-              name: 'Optimization & Norm',
-              children: [
-                { id: 'b2_1', name: 'Layer Normalization' },
-                { id: 'b2_2', name: 'Residual Connections' }
-              ]
-            },
-            {
-              id: 'b3',
-              name: 'Applications',
-              children: [
-                { id: 'b3_1', name: 'Language Transformers (BERT/GPT)' },
-                { id: 'b3_2', name: 'Vision Transformers (ViT)' }
-              ]
-            }
-          ]
-        }
+          ],
+        },
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/mind-map', { document_id });
+    const response = await api.post('/study/mind-map', { document_id, model });
     return response.data;
   },
 
-  generatePracticeQuestions: async ({ document_id, count = 4 }) => {
+  generatePracticeQuestions: async ({ document_id, count = 4, focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
@@ -950,46 +950,34 @@ export const studyApi = {
         practice_questions: [
           {
             type: 'Short Answer (5 Marks)',
-            question: 'Why do Transformers require dividing by √d_k in Scaled Dot-Product Attention?',
-            solution: 'When representation dimension d_k is large, dot products grow large in magnitude, pushing softmax into regions with extremely small gradients. Dividing by √d_k normalizes variance to 1.',
+            question: 'Why do Transformers require dividing by $\\sqrt{d_k}$ in Scaled Dot-Product Attention?',
+            solution: 'Dividing by $\\sqrt{d_k}$ keeps dot-product variance near $1$ so softmax retains healthy gradients.',
             difficulty: 'Easy',
-            page: 2
+            page: 2,
           },
-          {
-            type: 'Analytical (8 Marks)',
-            question: 'Compare Multi-Head Attention with standard Single-Head Attention. What computational advantages does it provide?',
-            solution: 'Multi-head attention projects queries, keys, and values into multiple subspace representations, allowing the model to attend to information from different semantic angles simultaneously.',
-            difficulty: 'Medium',
-            page: 3
-          },
-          {
-            type: 'Applied Problem (12 Marks)',
-            question: 'Explain how Positional Encoding solves the permutation invariance problem in self-attention.',
-            solution: 'Because standard self-attention has no sequential recurrence, it treats token order as irrelevant. Positional encodings add trigonometric sinusoidal vectors to input embeddings to preserve word ordering.',
-            difficulty: 'Hard',
-            page: 4
-          }
-        ]
+        ],
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/practice-questions', { document_id, count });
+    const response = await api.post('/study/practice-questions', { document_id, count, focus, model });
     return response.data;
   },
 
-  codingTutor: async ({ topic, language = 'python' }) => {
+  codingTutor: async ({ topic, language = 'python', document_id = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
         topic,
         language,
-        content: `### 💻 Coding Tutor: **${topic}** in ${language.toUpperCase()}\n\n#### 🧠 1. Core Algorithmic Intuition\nWhen implementing **${topic}**, we utilize dynamic programming and vectorization to achieve optimal subproblem memoization.\n\n#### ⚡ 2. Clean Implementation\n\`\`\`python\nimport numpy as np\n\ndef scaled_dot_product_attention(Q, K, V, mask=None):\n    \"\"\"\n    Computes scaled dot-product attention weights and context vector.\n    Time Complexity: O(N^2 * d)\n    Space Complexity: O(N^2)\n    \"\"\"\n    d_k = Q.shape[-1]\n    scores = np.matmul(Q, K.swapaxes(-2, -1)) / np.sqrt(d_k)\n    if mask is not None:\n        scores = np.where(mask == 0, -1e9, scores)\n    weights = np.exp(scores - np.max(scores, axis=-1, keepdims=True))\n    weights = weights / np.sum(weights, axis=-1, keepdims=True)\n    return np.matmul(weights, V), weights\n\`\`\`\n\n#### 📊 3. Complexity & Exam Takeaways\n- **Time Complexity:** $\\mathcal{O}(L^2 \\cdot d)$ quadratic in sequence length $L$.\n- **Space Complexity:** $\\mathcal{O}(L^2)$ attention matrix storage.`
+        content: `### Coding Tutor: **${topic}** in ${language.toUpperCase()}\n\n\`\`\`python\ndef example():\n    return True\n\`\`\`\n\n- **Time Complexity:** $\\mathcal{O}(N)$`,
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/coding-tutor', { topic, language });
+    const response = await api.post('/study/coding-tutor', { topic, language, document_id, model });
     return response.data;
   },
 
-  generateQuestionPaper: async ({ document_id }) => {
+  generateQuestionPaper: async ({ document_id, focus = null, model = null }) => {
     if (isDemo()) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       return {
@@ -1002,38 +990,14 @@ export const studyApi = {
             {
               section: 'Section A: Objective & Conceptual Foundations (10 Marks)',
               instructions: 'Answer all questions. Each question carries 2 marks.',
-              questions: [
-                '1. What does the dot product between Query and Key vectors represent?',
-                '2. Why is Layer Normalization preferred over Batch Normalization in Transformers?',
-                '3. State the time complexity of self-attention with respect to sequence length L.',
-                '4. Define vanishing gradient problem in deep neural networks.',
-                '5. What is the role of the Value (V) matrix in attention mechanism?'
-              ]
+              questions: ['1. State the time complexity of self-attention with respect to sequence length $L$.'],
             },
-            {
-              section: 'Section B: Descriptive & Analytical Questions (20 Marks)',
-              instructions: 'Answer any 4 out of 5 questions. Each question carries 5 marks.',
-              questions: [
-                '1. Derive the equation for Scaled Dot-Product Attention and explain the variance scaling factor.',
-                '2. Describe the forward pass and backward pass during backpropagation through a linear layer.',
-                '3. Compare Convolutional Neural Networks (CNNs) and Vision Transformers (ViT) on image classification tasks.',
-                '4. Explain how residual connections enable training networks with hundreds of layers.',
-                '5. Discuss the purpose and mathematical formulation of Sinusoidal Positional Encodings.'
-              ]
-            },
-            {
-              section: 'Section C: Comprehensive Design & Case Study (30 Marks)',
-              instructions: 'Answer both questions. Each carries 15 marks.',
-              questions: [
-                '1. **Architecture Blueprint:** Design a real-time question-answering system using an encoder-decoder Transformer. Detail the tokenization, embedding, cross-attention mechanism, and decoding strategy.',
-                '2. **Optimization Case Study:** A deployed Transformer model is suffering from quadratic memory bottleneck on 8,000 token documents. Propose and explain two architectural modifications (e.g., FlashAttention, Linear Attention) to mitigate this problem.'
-              ]
-            }
-          ]
-        }
+          ],
+        },
+        ai_generated: true,
       };
     }
-    const response = await api.post('/study/question-paper', { document_id });
+    const response = await api.post('/study/question-paper', { document_id, focus, model });
     return response.data;
   },
 };

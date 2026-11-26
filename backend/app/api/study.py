@@ -20,7 +20,10 @@ def generate_summary(
     db: Session = Depends(get_db)
 ):
     try:
-        return study_service.generate_summary(db, current_user.id, req.document_id, req.style or "detailed")
+        return study_service.generate_summary(
+            db, current_user.id, req.document_id, req.style or "detailed",
+            focus=req.focus, model=req.model,
+        )
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -31,11 +34,14 @@ def generate_flashcards(
     db: Session = Depends(get_db)
 ):
     doc_id = data.get("document_id")
-    count = data.get("count", 6)
+    count = int(data.get("count", 6) or 6)
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_flashcards(db, current_user.id, doc_id, count)
+        return study_service.generate_flashcards(
+            db, current_user.id, doc_id, count,
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -46,11 +52,14 @@ def generate_quiz(
     db: Session = Depends(get_db)
 ):
     doc_id = data.get("document_id")
-    count = data.get("count", 5)
+    count = int(data.get("count", 5) or 5)
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_quiz(db, current_user.id, doc_id, count)
+        return study_service.generate_quiz(
+            db, current_user.id, doc_id, count,
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -61,7 +70,9 @@ def explain_simply(
     db: Session = Depends(get_db)
 ):
     try:
-        return study_service.explain_simply(db, current_user.id, req.topic, req.document_id)
+        return study_service.explain_simply(
+            db, current_user.id, req.topic, req.document_id, model=req.model,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -75,7 +86,10 @@ def revision_notes(
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_revision_notes(db, current_user.id, doc_id)
+        return study_service.generate_revision_notes(
+            db, current_user.id, doc_id,
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -89,7 +103,9 @@ def important_topics(
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_important_topics(db, current_user.id, doc_id)
+        return study_service.generate_important_topics(
+            db, current_user.id, doc_id, model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -103,7 +119,10 @@ def generate_ai_notes(
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_ai_notes(db, current_user.id, doc_id, data.get("depth", "comprehensive"))
+        return study_service.generate_ai_notes(
+            db, current_user.id, doc_id, data.get("depth", "comprehensive"),
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -117,7 +136,9 @@ def generate_mind_map(
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_mind_map(db, current_user.id, doc_id)
+        return study_service.generate_mind_map(
+            db, current_user.id, doc_id, model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -130,9 +151,12 @@ def generate_practice_questions(
     doc_id = data.get("document_id")
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
-    count = data.get("count", 5)
+    count = int(data.get("count", 5) or 5)
     try:
-        return study_service.generate_practice_questions(db, current_user.id, doc_id, count)
+        return study_service.generate_practice_questions(
+            db, current_user.id, doc_id, count,
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -142,12 +166,15 @@ def coding_tutor(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    topic = data.get("topic", "").strip()
+    topic = (data.get("topic") or "").strip()
     if not topic:
         raise HTTPException(status_code=400, detail="topic is required.")
     lang = data.get("language", "python")
     try:
-        return study_service.generate_coding_tutor(db, current_user.id, topic, lang)
+        return study_service.generate_coding_tutor(
+            db, current_user.id, topic, lang,
+            document_id=data.get("document_id"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -161,6 +188,9 @@ def generate_question_paper(
     if not doc_id:
         raise HTTPException(status_code=400, detail="document_id is required.")
     try:
-        return study_service.generate_question_paper(db, current_user.id, doc_id)
+        return study_service.generate_question_paper(
+            db, current_user.id, doc_id,
+            focus=data.get("focus"), model=data.get("model"),
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

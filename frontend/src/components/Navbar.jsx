@@ -32,7 +32,7 @@ export default function Navbar({ title, onOpenMobileNav, onOpenUpload, onNewChat
     if (path === '/chat') return 'Workspace / AI Tutor';
     if (path === '/documents') return 'Workspace / My Documents';
     if (path === '/viewer') return 'Workspace / Document Reader';
-    if (path === '/study-tools') return 'Learning Tools / Study Toolkit';
+    if (path === '/study-tools' || path.startsWith('/study-tools/') || path.startsWith('/workspace/study-tools')) return 'Learning Tools / Study Toolkit';
     if (path === '/exams') return 'Learning Tools / Exams & Quizzes';
     if (path === '/flashcards') return 'Learning Tools / Flashcards';
     if (path === '/planner') return 'Learning Tools / Study Planner';

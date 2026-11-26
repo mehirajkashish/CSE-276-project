@@ -1,7 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   FileText,
   BookOpen,
@@ -13,7 +11,6 @@ import {
   Code2,
   FileCheck2,
   GraduationCap,
-  Download,
   Copy,
   Check,
   Loader2,
@@ -21,332 +18,653 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Shuffle,
   CheckCircle2,
   XCircle,
-  Lightbulb,
+  Download,
+  ArrowLeft,
+  ArrowRight,
+  Cpu,
+  Eye,
+  EyeOff,
+  MessageSquare,
+  Printer,
+  FolderOpen,
   ExternalLink,
-  Tag,
-  ArrowRight
 } from 'lucide-react';
-import { studyApi, documentApi } from '../services/api';
-import {
-  DEMO_FLASHCARDS,
-  DEMO_QUIZ,
-  DEMO_SUMMARY,
-  DEMO_MIND_MAP,
-  DEMO_PRACTICE_QUESTIONS,
-  DEMO_CODING_TUTOR,
-  DEMO_QUESTION_PAPER
-} from '../services/demoData';
+import RichMarkdown from '../components/RichMarkdown';
+import { studyApi, documentApi, chatApi } from '../services/api';
 
 const TOOLKIT_CARDS = [
   {
     id: 'notes',
     title: 'AI Notes Generator',
-    description: 'Transform raw slide decks into comprehensive, structured masterclass lecture notes.',
+    description: 'Generate structured lecture notes with analogies, KaTeX math, tables, and page citations.',
     icon: FileText,
     badge: 'Popular',
-    color: 'from-blue-600 to-indigo-600',
-    borderColor: 'hover:border-blue-500/50',
   },
   {
     id: 'summary',
     title: 'PDF Summarizer',
-    description: 'Extract executive overviews, taxonomies, and high-yield takeaways page-by-page.',
+    description: 'Synthesize executive overviews, unit breakdowns, and high-yield exam takeaways.',
     icon: BookOpen,
     badge: 'Core',
-    color: 'from-emerald-600 to-teal-600',
-    borderColor: 'hover:border-emerald-500/50',
   },
   {
     id: 'mcq',
     title: 'MCQ Generator',
-    description: 'Generate multiple-choice exam questions with realistic academic distractors.',
+    description: 'Practice interactive exam MCQs with scoring, instant feedback, and explanations.',
     icon: HelpCircle,
     badge: 'Exam Prep',
-    color: 'from-violet-600 to-purple-600',
-    borderColor: 'hover:border-violet-500/50',
   },
   {
     id: 'flashcards',
     title: 'Flashcard Generator',
-    description: 'Create active recall flashcard decks with citations for spaced repetition.',
+    description: 'Flip, shuffle, and track active-recall flashcards mapped directly to your PDF.',
     icon: Layers,
     badge: 'Recall',
-    color: 'from-amber-600 to-orange-600',
-    borderColor: 'hover:border-amber-500/50',
   },
   {
     id: 'topics',
     title: 'Important Topics Finder',
-    description: 'Pinpoint highest-probability curriculum topics likely to appear on examinations.',
+    description: 'Pinpoint highest-probability exam topics ranked by weight with concise takeaways.',
     icon: Sparkles,
     badge: 'High-Yield',
-    color: 'from-fuchsia-600 to-pink-600',
-    borderColor: 'hover:border-fuchsia-500/50',
   },
   {
     id: 'mindmap',
     title: 'Mind Map Generator',
-    description: 'Visualize hierarchical relationships and concept trees across all chapters.',
+    description: 'Explore interactive concept branches and inspect each subtopic note.',
     icon: GitFork,
     badge: 'Visual',
-    color: 'from-cyan-600 to-blue-600',
-    borderColor: 'hover:border-cyan-500/50',
   },
   {
     id: 'practice',
     title: 'Practice Question Generator',
-    description: 'Generate subjective 5-mark and 10-mark conceptual questions with model solutions.',
+    description: 'Write answers to 5/8/12-mark subjective problems and check step-by-step rubrics.',
     icon: PenTool,
     badge: 'Practice',
-    color: 'from-rose-600 to-red-600',
-    borderColor: 'hover:border-rose-500/50',
   },
   {
     id: 'coding',
     title: 'Coding Tutor',
-    description: 'Break down algorithms, data structures, and code implementations with complexity analysis.',
+    description: 'Get clean implementations, dry-runs, edge cases, and LaTeX Big-O analysis.',
     icon: Code2,
     badge: 'CS & Math',
-    color: 'from-indigo-600 to-blue-600',
-    borderColor: 'hover:border-indigo-500/50',
   },
   {
     id: 'revision',
-    title: 'Chapter-wise Revision Notes',
-    description: 'Generate concise exam-eve revision sheets packed with essential definitions and formulas.',
+    title: 'Chapter Revision Notes',
+    description: 'Interactive last-minute revision sheet with recall-toggle definitions & questions.',
     icon: FileCheck2,
     badge: 'Quick Prep',
-    color: 'from-teal-600 to-emerald-600',
-    borderColor: 'hover:border-teal-500/50',
   },
   {
     id: 'paper',
     title: 'Question Paper Generator',
-    description: 'Draft complete 60-mark mock examination papers with Section A, B, and C rubrics.',
+    description: 'Draft complete 60-mark Section A/B/C mock exam papers with toggleable answer hints.',
     icon: GraduationCap,
     badge: 'Full Mock',
-    color: 'from-blue-700 to-indigo-800',
-    borderColor: 'hover:border-blue-500/50',
   },
 ];
 
+const CODING_SUGGESTIONS = [
+  'Binary Search & Two Pointers',
+  'Linked List Reversal & Cycle Detection',
+  'QuickSort vs MergeSort',
+  'BFS & DFS Graph Traversal',
+  'Dynamic Programming: Knapsack',
+];
+
+function downloadMarkdown(filename, content) {
+  if (!content) return;
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function StudyTools() {
-  const [searchParams] = useSearchParams();
-  const initialDocId = searchParams.get('doc');
-  const workspaceRef = useRef(null);
+  const { toolId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
+  const initialDocId = searchParams.get('doc') || '';
+  const activeToolMeta = useMemo(
+    () => TOOLKIT_CARDS.find((t) => t.id === toolId) || null,
+    [toolId]
+  );
+
+  /* ── Shared document, model & loading state ── */
   const [documents, setDocuments] = useState([]);
-  const [selectedDocId, setSelectedDocId] = useState(initialDocId || '');
-  const [activeTool, setActiveTool] = useState('notes');
-
+  const [docsLoaded, setDocsLoaded] = useState(false);
+  const [selectedDocId, setSelectedDocId] = useState(initialDocId);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [focusTopic, setFocusTopic] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [aiMeta, setAiMeta] = useState({ aiGenerated: null, modelUsed: null });
+  const [copied, setCopied] = useState(false);
 
-  // Tool outputs state
+  /* ── Tool-specific interactive state ── */
+  const [notesDepth, setNotesDepth] = useState('comprehensive');
   const [notesData, setNotesData] = useState(null);
+
+  const [summaryStyle, setSummaryStyle] = useState('detailed');
   const [summaryData, setSummaryData] = useState(null);
+
+  const [quizCount, setQuizCount] = useState(5);
   const [quizData, setQuizData] = useState([]);
   const [userAnswers, setUserAnswers] = useState({});
-  const [score, setScore] = useState(0);
+  const [revealAllQuiz, setRevealAllQuiz] = useState(false);
 
+  const [flashcardCount, setFlashcardCount] = useState(6);
   const [flashcardsData, setFlashcardsData] = useState([]);
   const [currentCardIdx, setCurrentCardIdx] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const [cardMastery, setCardMastery] = useState({}); // { idx: 'known' | 'review' }
 
   const [topicsData, setTopicsData] = useState([]);
+  const [topicFilter, setTopicFilter] = useState('All');
+
   const [mindMapData, setMindMapData] = useState(null);
+  const [collapsedBranches, setCollapsedBranches] = useState({});
+  const [selectedNode, setSelectedNode] = useState(null);
+
   const [practiceData, setPracticeData] = useState([]);
+  const [practiceDiffFilter, setPracticeDiffFilter] = useState('All');
+  const [practiceDrafts, setPracticeDrafts] = useState({});
+  const [practiceRevealed, setPracticeRevealed] = useState({});
 
   const [codingTopic, setCodingTopic] = useState('Binary Search & Two Pointers');
   const [codingLang, setCodingLang] = useState('python');
   const [codingResult, setCodingResult] = useState(null);
 
   const [revisionData, setRevisionData] = useState(null);
+  const [revisionTab, setRevisionTab] = useState('points');
+  const [hiddenDefs, setHiddenDefs] = useState(false);
+  const [revealedDefIndices, setRevealedDefIndices] = useState({});
+
   const [paperData, setPaperData] = useState(null);
+  const [showPaperHints, setShowPaperHints] = useState(false);
 
-  const [copied, setCopied] = useState(false);
-
+  /* ── Load documents & live configured AI models once ── */
   useEffect(() => {
-    loadDocs();
-  }, []);
+    let active = true;
+    (async () => {
+      const [docs, modelsRes] = await Promise.all([
+        documentApi.getDocuments().catch(() => []),
+        chatApi.getModels().catch(() => null),
+      ]);
+      if (!active) return;
+      const list = docs || [];
+      setDocuments(list);
+      setDocsLoaded(true);
 
-  useEffect(() => {
-    if (initialDocId) {
-      setSelectedDocId(initialDocId);
-      handleLaunchTool(activeTool, initialDocId);
-    }
-  }, [initialDocId]);
-
-  const loadDocs = async () => {
-    try {
-      const docs = await documentApi.getDocuments();
-      setDocuments(docs || []);
-      const defaultId = initialDocId || (docs && docs.length > 0 ? docs[0].id : '');
-      if (defaultId) {
-        setSelectedDocId(defaultId);
-        // Automatically synthesize initial tool output
-        handleLaunchTool('notes', defaultId);
+      if (modelsRes?.configured && Array.isArray(modelsRes.models) && modelsRes.models.length > 0) {
+        setAvailableModels(modelsRes.models);
+        setSelectedModel(modelsRes.default_model || modelsRes.models[0].id);
       }
-    } catch (e) {
-      console.warn('Could not load documents:', e);
-      handleLaunchTool('notes', '');
-    }
-  };
 
-  const handleLaunchTool = async (toolId, overrideDocId = null) => {
-    setActiveTool(toolId);
+      if (!initialDocId && list.length > 0) {
+        setSelectedDocId(list[0].id);
+      }
+    })();
+    return () => { active = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (initialDocId && initialDocId !== selectedDocId) {
+      setSelectedDocId(initialDocId);
+    }
+  }, [initialDocId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Run the active tool against backend AI ── */
+  const runTool = useCallback(async (override = {}) => {
+    if (!toolId || !activeToolMeta) return;
+    const docId = override.docId ?? selectedDocId;
+    const model = override.model ?? (selectedModel || null);
+    const focus = (override.focus ?? focusTopic).trim() || null;
+
+    if (toolId !== 'coding' && !docId) {
+      setError('Upload or select a PDF document first to run this tool.');
+      return;
+    }
+
     setError(null);
     setLoading(true);
 
-    const docId = overrideDocId || selectedDocId || (documents.length > 0 ? documents[0].id : '');
-
-    // Scroll workspace into view smoothly
-    setTimeout(() => {
-      workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 50);
-
     try {
+      let res = null;
       if (toolId === 'notes') {
-        const res = await studyApi.generateAiNotes({ document_id: docId });
+        res = await studyApi.generateAiNotes({
+          document_id: docId,
+          depth: override.depth ?? notesDepth,
+          focus,
+          model,
+        });
         setNotesData(res);
       } else if (toolId === 'summary') {
-        const res = await studyApi.generateSummary({ document_id: docId });
+        res = await studyApi.generateSummary({
+          document_id: docId,
+          style: override.style ?? summaryStyle,
+          focus,
+          model,
+        });
         setSummaryData(res);
       } else if (toolId === 'mcq') {
-        const res = await studyApi.generateQuiz({ document_id: docId, count: 5 });
-        setQuizData(res.quiz || DEMO_QUIZ);
+        res = await studyApi.generateQuiz({
+          document_id: docId,
+          count: override.count ?? quizCount,
+          focus,
+          model,
+        });
+        setQuizData(res.quiz || []);
         setUserAnswers({});
-        setScore(0);
+        setRevealAllQuiz(false);
       } else if (toolId === 'flashcards') {
-        const res = await studyApi.generateFlashcards({ document_id: docId, count: 6 });
-        setFlashcardsData(res.flashcards || DEMO_FLASHCARDS);
+        res = await studyApi.generateFlashcards({
+          document_id: docId,
+          count: override.count ?? flashcardCount,
+          focus,
+          model,
+        });
+        setFlashcardsData(res.flashcards || []);
         setCurrentCardIdx(0);
         setIsFlipped(false);
+        setCardMastery({});
       } else if (toolId === 'topics') {
-        const res = await studyApi.generateImportantTopics({ document_id: docId });
+        res = await studyApi.generateImportantTopics({ document_id: docId, model });
         setTopicsData(res.topics || []);
+        setTopicFilter('All');
       } else if (toolId === 'mindmap') {
-        const res = await studyApi.generateMindMap({ document_id: docId });
+        res = await studyApi.generateMindMap({ document_id: docId, model });
         setMindMapData(res);
+        setCollapsedBranches({});
+        setSelectedNode(null);
       } else if (toolId === 'practice') {
-        const res = await studyApi.generatePracticeQuestions({ document_id: docId, count: 4 });
+        res = await studyApi.generatePracticeQuestions({
+          document_id: docId,
+          count: 5,
+          focus,
+          model,
+        });
         setPracticeData(res.practice_questions || []);
+        setPracticeDrafts({});
+        setPracticeRevealed({});
       } else if (toolId === 'coding') {
-        const res = await studyApi.codingTutor({ topic: codingTopic, language: codingLang });
+        res = await studyApi.codingTutor({
+          topic: override.codingTopic ?? codingTopic,
+          language: override.codingLang ?? codingLang,
+          document_id: docId || null,
+          model,
+        });
         setCodingResult(res);
       } else if (toolId === 'revision') {
-        const res = await studyApi.generateRevisionNotes({ document_id: docId });
+        res = await studyApi.generateRevisionNotes({ document_id: docId, focus, model });
         setRevisionData(res);
+        setRevealedDefIndices({});
       } else if (toolId === 'paper') {
-        const res = await studyApi.generateQuestionPaper({ document_id: docId });
+        res = await studyApi.generateQuestionPaper({ document_id: docId, focus, model });
         setPaperData(res.question_paper || null);
       }
-    } catch (err) {
-      console.warn('API call encountered an issue, falling back to cached academic synthesis:', err);
-      const docObj = documents.find((d) => d.id === docId);
-      const filename = docObj?.filename || 'Course Document';
 
-      if (toolId === 'notes') {
-        setNotesData({
-          notes: `# 📚 Comprehensive Lecture Notes: ${filename}\n\n**Subject Area:** Core Curriculum | **Mode:** High-Yield Masterclass\n\n---\n\n## 1. 🎯 Executive Learning Objectives\n- Master fundamental definitions, theorems, and proofs.\n- Apply conceptual frameworks directly to examination problems.\n- Connect mathematical models to real-world operational domains.\n\n---\n\n## 2. 🏛️ Core Definitions & Theoretical Pillars\n> **Governing Mechanism:** The fundamental process establishes equilibrium constraints to minimize catastrophic variance and optimize resource utilization.\n\n---\n\n## 3. ⚡ High-Yield Exam Takeaways\n1. Always verify boundary conditions before applying standard derivations.\n2. Note the page citations for formula justifications in your exam answer scripts.`
-        });
-      } else if (toolId === 'mcq') {
-        setQuizData(DEMO_QUIZ);
-        setUserAnswers({});
-        setScore(0);
-      } else if (toolId === 'flashcards') {
-        setFlashcardsData(DEMO_FLASHCARDS);
-        setCurrentCardIdx(0);
-        setIsFlipped(false);
-      } else if (toolId === 'mindmap') {
-        setMindMapData(DEMO_MIND_MAP);
-      } else if (toolId === 'practice') {
-        setPracticeData(DEMO_PRACTICE_QUESTIONS);
-      } else if (toolId === 'coding') {
-        setCodingResult(DEMO_CODING_TUTOR);
-      } else if (toolId === 'paper') {
-        setPaperData(DEMO_QUESTION_PAPER);
-      } else if (toolId === 'summary') {
-        setSummaryData({ summary: DEMO_SUMMARY });
-      } else if (toolId === 'topics') {
-        setTopicsData([
-          'Scaled Dot-Product Attention & Multi-Head Self Attention',
-          'Naturally Occurring vs. Anthropogenic Hazard Classifications',
-          'Wave Function Normalization & Born Probability Interpretation',
-          'Asymptotic Complexity and Recurrence Master Theorem'
-        ]);
-      } else if (toolId === 'revision') {
-        setRevisionData({
-          title: `Exam Revision: ${filename}`,
-          high_yield_points: [
-            'Attention(Q, K, V) = softmax(QK^T / √d_k)V prevents gradient vanishing.',
-            'Always evaluate boundary constraints before algebraic expansion.',
-            'The Schrödinger equation describes quantum state evolution with probability density |Ψ|².'
-          ],
-          important_definitions: [
-            { term: 'Self-Attention', definition: 'Computes associative weights across sequences simultaneously.' },
-            { term: 'Leitner System', definition: 'Spaced repetition methodology optimizing retention intervals.' }
-          ],
-          potential_exam_questions: [
-            'Explain the theoretical necessity of dividing by sqrt(d_k) in scaled attention.',
-            'Compare and contrast primary and secondary mitigation strategies.'
-          ]
+      if (res) {
+        setAiMeta({
+          aiGenerated: res.ai_generated ?? null,
+          modelUsed: res.model_used || null,
         });
       }
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to synthesize study output.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    toolId, activeToolMeta, selectedDocId, selectedModel, focusTopic,
+    notesDepth, summaryStyle, quizCount, flashcardCount, codingTopic, codingLang,
+  ]);
 
-  const handleCopyText = (text) => {
+  /* ── Auto-generate when opening a dedicated tool page once docs load ── */
+  useEffect(() => {
+    if (!toolId || !activeToolMeta || !docsLoaded) return;
+    if (toolId === 'coding' || selectedDocId) {
+      runTool();
+    }
+  }, [toolId, docsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Keyboard shortcuts inside Flashcards tool ── */
+  useEffect(() => {
+    if (toolId !== 'flashcards' || flashcardsData.length === 0) return;
+    const onKey = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsFlipped((f) => !f);
+      } else if (e.key === 'ArrowRight') {
+        setCurrentCardIdx((i) => Math.min(flashcardsData.length - 1, i + 1));
+        setIsFlipped(false);
+      } else if (e.key === 'ArrowLeft') {
+        setCurrentCardIdx((i) => Math.max(0, i - 1));
+        setIsFlipped(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toolId, flashcardsData.length]);
+
+  const handleCopy = (text) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const openToolPage = (id) => {
+    const base = window.location.pathname.includes('/workspace/') ? '/workspace/study-tools' : '/study-tools';
+    const qs = selectedDocId ? `?doc=${encodeURIComponent(selectedDocId)}` : '';
+    navigate(`${base}/${id}${qs}`);
+  };
+
+  const backToHub = () => {
+    const base = window.location.pathname.includes('/workspace/') ? '/workspace/study-tools' : '/study-tools';
+    const qs = selectedDocId ? `?doc=${encodeURIComponent(selectedDocId)}` : '';
+    navigate(`${base}${qs}`);
+  };
+
+  const handleDocChange = (newDocId) => {
+    setSelectedDocId(newDocId);
+    if (toolId) {
+      setSearchParams(newDocId ? { doc: newDocId } : {});
+      if (newDocId || toolId === 'coding') {
+        runTool({ docId: newDocId });
+      }
+    }
   };
 
   const selectedDocObj = documents.find((d) => d.id === selectedDocId);
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20 select-none">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-[#1A1A1A] border border-[#262626] shadow-sm">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-white tracking-tight">
-              AI Study Toolkit &{' '}
-              <span className="font-serif italic font-normal text-white">Synthesis Hub</span>
-            </h1>
-            <span className="text-[10px] font-semibold uppercase px-2.5 py-0.5 rounded-full bg-[#141414] text-white border border-[#262626]">
-              10 Smart Tools
-            </span>
+  /* ═══════════════════════════════════════════════════════════════ */
+  /* 1. TOOLKIT DIRECTORY HUB (/study-tools)                        */
+  /* ═══════════════════════════════════════════════════════════════ */
+  if (!toolId || !activeToolMeta) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-6 pb-20 animate-fade-in-up">
+        {/* Minimal Obsidian Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 sm:p-6 rounded-2xl bg-[#141414] border border-[#262626]">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                AI Study Toolkit
+              </h1>
+              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-[#1A1A1A] text-[#9A9A9A] border border-[#262626]">
+                10 Dedicated Tools
+              </span>
+            </div>
+            <p className="text-xs text-[#9A9A9A]">
+              Pick a study tool below to open its dedicated AI-powered workspace with math rendering and interactive practice.
+            </p>
           </div>
-          <p className="text-xs text-[#9A9A9A] mt-1">
-            Transform uploaded academic documents into lecture notes, exam papers, flashcards, and mind maps.
-          </p>
+
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs text-[#9A9A9A] shrink-0">Document:</span>
+            {documents.length > 0 ? (
+              <select
+                value={selectedDocId}
+                onChange={(e) => setSelectedDocId(e.target.value)}
+                className="bg-[#0D0D0D] border border-[#262626] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#3A3A3A] max-w-xs"
+              >
+                {documents.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.filename} ({d.total_pages || 1} pages)
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigate('/documents')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-neutral-200 transition"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                Upload PDF
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Target Document Picker */}
-        <div className="flex items-center gap-2.5">
-          <span className="text-xs text-[#9A9A9A] shrink-0 font-medium">Target Document:</span>
-          <select
-            value={selectedDocId}
-            onChange={(e) => {
-              const newDocId = e.target.value;
-              setSelectedDocId(newDocId);
-              handleLaunchTool(activeTool, newDocId);
-            }}
-            className="bg-[#0D0D0D] border border-[#262626] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-white max-w-xs"
-          >
-            {documents.map((d) => (
-              <option key={d.id} value={d.id}>
-                📄 {d.filename} ({d.total_pages || 1} pages)
-              </option>
-            ))}
-          </select>
+        {/* 10 Minimal Tool Cards — Click Opens Dedicated Page */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {TOOLKIT_CARDS.map((tool) => {
+            const Icon = tool.icon;
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                onClick={() => openToolPage(tool.id)}
+                className="p-4 rounded-2xl text-left border border-[#262626] bg-[#141414] hover:bg-[#1A1A1A] hover:border-white/40 transition-all duration-150 flex flex-col justify-between space-y-4 group active:scale-[0.99]"
+              >
+                <div className="space-y-2.5 w-full">
+                  <div className="flex items-center justify-between">
+                    <div className="w-9 h-9 rounded-xl bg-[#0D0D0D] border border-[#262626] group-hover:border-[#3A3A3A] flex items-center justify-center text-white transition">
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#0D0D0D] text-[#9A9A9A] border border-[#222222]">
+                      {tool.badge}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xs font-bold text-white">{tool.title}</h3>
+                  <p className="text-[11px] text-[#9A9A9A] leading-relaxed line-clamp-2">
+                    {tool.description}
+                  </p>
+                </div>
+
+                <div className="pt-2.5 border-t border-[#222222] w-full flex items-center justify-between text-[11px] font-semibold text-[#9A9A9A] group-hover:text-white transition">
+                  <span>Open Page</span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Open in new browser tab"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const qs = selectedDocId ? `?doc=${encodeURIComponent(selectedDocId)}` : '';
+                        const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+                        window.open(`${base}/study-tools/${tool.id}${qs}`, '_blank', 'noopener,noreferrer');
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.stopPropagation();
+                          const qs = selectedDocId ? `?doc=${encodeURIComponent(selectedDocId)}` : '';
+                          const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+                          window.open(`${base}/study-tools/${tool.id}${qs}`, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      className="p-1 rounded-md hover:bg-[#262626] text-[#666666] hover:text-white transition"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════════════ */
+  /* 2. DEDICATED STANDALONE TOOL PAGE (/study-tools/:toolId)       */
+  /* ═══════════════════════════════════════════════════════════════ */
+  const ActiveIcon = activeToolMeta.icon;
+
+  // Derived interactive stats for MCQ & Flashcards
+  const mcqAnsweredCount = Object.keys(userAnswers).length;
+  const mcqScore = quizData.reduce(
+    (acc, q, idx) => (userAnswers[idx] && userAnswers[idx] === q.correct_option_id ? acc + 1 : acc),
+    0
+  );
+  const activeCard = flashcardsData[currentCardIdx] || null;
+  const knownCount = Object.values(cardMastery).filter((v) => v === 'known').length;
+
+  const filteredTopics = topicsData.filter((t) =>
+    topicFilter === 'All' ? true : (t.importance || '').toLowerCase() === topicFilter.toLowerCase()
+  );
+  const filteredPractice = practiceData.filter((p) =>
+    practiceDiffFilter === 'All' ? true : (p.difficulty || '').toLowerCase() === practiceDiffFilter.toLowerCase()
+  );
+
+  const buildRevisionMarkdown = () => {
+    if (!revisionData?.title) return '';
+    return [
+      `# ${revisionData.title}`,
+      '\n## High-Yield Memorization Points',
+      ...(revisionData.high_yield_points || []).map((p) => `- ${p}`),
+      '\n## Essential Definitions',
+      ...(revisionData.important_definitions || []).map((d) => `- **${d.term}:** ${d.definition}`),
+      '\n## Expected Exam Questions',
+      ...(revisionData.potential_exam_questions || []).map((q, i) => `${i + 1}. ${q}`),
+    ].join('\n');
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-5 pb-20 animate-fade-in-up">
+      {/* ── Dedicated Tool Header ── */}
+      <div className="rounded-2xl border border-[#262626] bg-[#141414] p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={backToHub}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1A1A1A] hover:bg-[#242424] border border-[#262626] text-xs font-medium text-[#9A9A9A] hover:text-white transition shrink-0"
+              title="Back to all 10 study tools"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>All Tools</span>
+            </button>
+
+            <div className="w-9 h-9 rounded-xl bg-white text-black flex items-center justify-center shrink-0">
+              <ActiveIcon className="w-4 h-4 stroke-[2.3]" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-base sm:text-lg font-bold text-white truncate">
+                  {activeToolMeta.title}
+                </h1>
+                {aiMeta.aiGenerated === true && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400">
+                    <Cpu className="w-2.5 h-2.5" />
+                    {aiMeta.modelUsed || 'AI Grounded'}
+                  </span>
+                )}
+                {aiMeta.aiGenerated === false && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300">
+                    Local Fallback
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[#9A9A9A] truncate">
+                {activeToolMeta.description}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate(selectedDocId ? `/chat?doc=${selectedDocId}` : '/chat')}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1A1A1A] hover:bg-[#242424] border border-[#262626] text-xs font-medium text-[#E5E5E5] hover:text-white transition"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Ask AI Tutor</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => runTool()}
+              disabled={loading || (toolId !== 'coding' && !selectedDocId)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black text-xs font-semibold transition disabled:opacity-40 active:scale-95"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 stroke-[2.3]" />}
+              <span>{loading ? 'Generating…' : 'Regenerate'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Controls Row: Document, Model & Optional Topic Focus ── */}
+        <div className="pt-3 border-t border-[#222222] grid grid-cols-1 md:grid-cols-12 gap-2.5">
+          <div className="md:col-span-4">
+            <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#666666] mb-1">
+              Target Document
+            </label>
+            <select
+              value={selectedDocId}
+              onChange={(e) => handleDocChange(e.target.value)}
+              className="w-full bg-[#0D0D0D] border border-[#262626] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#3A3A3A]"
+            >
+              {toolId === 'coding' && <option value="">General CS (No PDF filter)</option>}
+              {documents.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.filename} ({d.total_pages || 1} pages)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {availableModels.length > 0 && (
+            <div className="md:col-span-3">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#666666] mb-1">
+                AI Model
+              </label>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="w-full bg-[#0D0D0D] border border-[#262626] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#3A3A3A]"
+              >
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} ({m.badge})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {toolId !== 'topics' && toolId !== 'mindmap' && toolId !== 'coding' && (
+            <div className={availableModels.length > 0 ? 'md:col-span-5' : 'md:col-span-8'}>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#666666] mb-1">
+                Focus Topic / Chapter (Optional)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={focusTopic}
+                  onChange={(e) => setFocusTopic(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') runTool(); }}
+                  placeholder="e.g. Linked Lists, Unit 2, Time Complexity…"
+                  className="flex-1 bg-[#0D0D0D] border border-[#262626] rounded-xl px-3 py-2 text-xs text-white placeholder-[#666666] focus:outline-none focus:border-[#3A3A3A]"
+                />
+                {focusTopic && (
+                  <button
+                    type="button"
+                    onClick={() => runTool()}
+                    disabled={loading}
+                    className="px-3 py-2 rounded-xl bg-[#1F1F1F] hover:bg-[#2A2A2A] border border-[#2E2E2E] text-xs font-medium text-white transition"
+                  >
+                    Apply
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -357,423 +675,741 @@ export default function StudyTools() {
         </div>
       )}
 
-      {/* 10 Visual Toolkit Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-        {TOOLKIT_CARDS.map((tool) => {
-          const Icon = tool.icon;
-          const isActive = activeTool === tool.id;
-
-          return (
-            <div
-              key={tool.id}
-              onClick={() => handleLaunchTool(tool.id)}
-              className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between space-y-3 cursor-pointer group shadow-sm ${
-                isActive
-                  ? 'bg-[#242424] border-white ring-1 ring-white/20'
-                  : 'bg-[#1A1A1A] border-[#262626] hover:border-[#3A3A3A] hover:bg-[#1E1E1E]'
-              }`}
-            >
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="w-9 h-9 rounded-xl bg-[#0D0D0D] border border-[#262626] flex items-center justify-center text-white shadow-sm">
-                    <Icon className="w-4 h-4 text-white" />
-                  </div>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#0D0D0D] text-[#9A9A9A] border border-[#262626]">
-                    {tool.badge}
-                  </span>
-                </div>
-
-                <h3 className="text-xs font-bold text-white transition">
-                  {tool.title}
-                </h3>
-                <p className="text-[11px] text-[#9A9A9A] leading-relaxed line-clamp-2">
-                  {tool.description}
-                </p>
-              </div>
-
-              <div className="pt-2 border-t border-[#262626] flex items-center justify-between text-[11px] font-semibold">
-                <span className={isActive ? 'text-emerald-400 font-bold' : 'text-white'}>
-                  {isActive ? (loading ? 'Synthesizing...' : 'Active Workspace') : 'Launch Tool'}
-                </span>
-                {loading && isActive ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                ) : (
-                  <ArrowRight className={`w-3.5 h-3.5 transition ${isActive ? 'text-emerald-400 translate-x-1' : 'text-white group-hover:translate-x-1'}`} />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ACTIVE WORKSPACE OUTPUT */}
-      <div ref={workspaceRef} className="rounded-2xl border border-[#262626] bg-[#1A1A1A] p-6 sm:p-8 space-y-6 shadow-sm scroll-mt-20">
-        <div className="flex items-center justify-between border-b border-[#262626] pb-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-white uppercase tracking-wider">
-              {TOOLKIT_CARDS.find((t) => t.id === activeTool)?.title || 'Study Tool'}
-            </span>
-            <span className="text-xs text-[#9A9A9A]">
-              Source: <strong className="text-white">{selectedDocObj?.filename || 'Uploaded Document'}</strong>
-            </span>
-          </div>
-
-          <button
-            onClick={() => handleLaunchTool(activeTool)}
-            disabled={loading || !selectedDocId}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold transition disabled:opacity-50 shadow-sm active:scale-95"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-black" /> : <Sparkles className="w-3.5 h-3.5 stroke-[2.5]" />}
-            <span>Regenerate Output</span>
-          </button>
-        </div>
-
+      {/* ── Dedicated Tool Workspace ── */}
+      <div className="rounded-2xl border border-[#262626] bg-[#141414] p-5 sm:p-7 space-y-5">
         {loading ? (
-          <div className="py-20 text-center text-xs text-slate-400 flex items-center justify-center gap-2.5">
-            <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-            <span>StudyMind AI is parsing document knowledge and generating structured output...</span>
+          <div className="py-24 flex flex-col items-center gap-3 text-center">
+            <div className="w-10 h-10 rounded-xl bg-[#1A1A1A] border border-[#262626] flex items-center justify-center">
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+            </div>
+            <p className="text-xs font-medium text-white">Synthesizing with AI…</p>
+            <p className="text-[11px] text-[#666666]">
+              Reading {selectedDocObj?.filename || 'your request'} and formatting equations, code & citations
+            </p>
           </div>
         ) : (
           <>
             {/* 1. AI NOTES GENERATOR */}
-            {activeTool === 'notes' && (
+            {toolId === 'notes' && (
               <div className="space-y-4">
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => handleCopyText(notesData?.notes)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 hover:text-white"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? 'Copied' : 'Copy Notes'}</span>
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#222222]">
+                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                    {['brief', 'comprehensive', 'deep exam'].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => { setNotesDepth(d); runTool({ depth: d }); }}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium capitalize transition ${
+                          notesDepth === d ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(notesData?.notes)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMarkdown(`${selectedDocObj?.filename || 'notes'}-study-notes.md`, notesData?.notes)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download .md</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-6 text-sm text-slate-200 leading-relaxed prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {notesData?.notes || 'Click "Regenerate Output" to synthesize comprehensive lecture notes from your document.'}
-                  </ReactMarkdown>
+                <div className="rounded-xl border border-[#222222] bg-[#0D0D0D] p-5 sm:p-6">
+                  <RichMarkdown content={notesData?.notes || 'Select a document and click **Regenerate** to build structured lecture notes.'} />
                 </div>
               </div>
             )}
 
             {/* 2. PDF SUMMARIZER */}
-            {activeTool === 'summary' && (
+            {toolId === 'summary' && (
               <div className="space-y-4">
-                <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-6 text-sm text-slate-200 leading-relaxed prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {typeof summaryData?.summary === 'string'
-                      ? summaryData.summary
-                      : DEMO_SUMMARY}
-                  </ReactMarkdown>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#222222]">
+                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                    {['brief', 'detailed', 'bulleted'].map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => { setSummaryStyle(st); runTool({ style: st }); }}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium capitalize transition ${
+                          summaryStyle === st ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(summaryData?.summary)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadMarkdown(`${selectedDocObj?.filename || 'document'}-summary.md`, summaryData?.summary)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download .md</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#222222] bg-[#0D0D0D] p-5 sm:p-6">
+                  <RichMarkdown content={summaryData?.summary || 'Select a document and click **Regenerate** to summarize it.'} />
                 </div>
               </div>
             )}
 
             {/* 3. MCQ GENERATOR */}
-            {activeTool === 'mcq' && (
-              <div className="space-y-6">
+            {toolId === 'mcq' && (
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#0D0D0D] border border-[#222222]">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-semibold text-white">
+                      Score: <span className="font-mono">{mcqScore} / {quizData.length}</span>
+                    </span>
+                    <span className="text-[11px] text-[#9A9A9A]">
+                      Answered: {mcqAnsweredCount}/{quizData.length}
+                    </span>
+                    <div className="inline-flex items-center p-0.5 rounded-lg bg-[#141414] border border-[#262626]">
+                      {[5, 8, 10].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => { setQuizCount(cnt); runTool({ count: cnt }); }}
+                          className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono transition ${
+                            quizCount === cnt ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                          }`}
+                        >
+                          {cnt} Qs
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRevealAllQuiz((v) => !v)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      {revealAllQuiz ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{revealAllQuiz ? 'Hide Answers' : 'Reveal Answers'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setUserAnswers({}); setRevealAllQuiz(false); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-4">
-                  {(quizData.length > 0 ? quizData : DEMO_QUIZ).map((q, idx) => (
-                    <div key={idx} className="p-5 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span className="font-mono">Question {idx + 1}</span>
-                        <span>Page {q.page_number || 1}</span>
+                  {quizData.map((q, idx) => {
+                    const picked = userAnswers[idx];
+                    const showOutcome = Boolean(picked) || revealAllQuiz;
+                    return (
+                      <div key={idx} className="p-4 sm:p-5 rounded-xl border border-[#262626] bg-[#0D0D0D] space-y-3">
+                        <div className="flex items-center justify-between text-[11px] text-[#9A9A9A]">
+                          <span className="font-mono font-semibold text-white">Question {idx + 1}</span>
+                          <span className="font-mono">Page {q.page_number || 1}</span>
+                        </div>
+                        <div className="text-sm font-medium text-white">
+                          <RichMarkdown content={q.question} />
+                        </div>
+                        <div className="space-y-2">
+                          {q.options?.map((opt) => {
+                            const isSelected = picked === opt.id;
+                            const isCorrect = opt.id === q.correct_option_id;
+                            let cls = 'bg-[#141414] border-[#262626] text-[#E5E5E5] hover:border-[#3A3A3A]';
+                            if (showOutcome) {
+                              if (isCorrect) cls = 'bg-emerald-500/15 border-emerald-500/50 text-emerald-200';
+                              else if (isSelected) cls = 'bg-rose-500/15 border-rose-500/50 text-rose-200';
+                            }
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setUserAnswers((prev) => ({ ...prev, [idx]: opt.id }))}
+                                className={`w-full p-3 rounded-xl border text-left text-xs transition flex items-center justify-between gap-2 ${cls}`}
+                              >
+                                <span className="flex items-start gap-2">
+                                  <strong className="font-mono shrink-0">{opt.id}.</strong>
+                                  <span><RichMarkdown content={opt.text} className="inline [&>p]:m-0" /></span>
+                                </span>
+                                {showOutcome && isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                                {showOutcome && isSelected && !isCorrect && <XCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {showOutcome && q.explanation && (
+                          <div className="pt-2.5 border-t border-[#222222] text-xs text-[#9A9A9A]">
+                            <strong className="text-white">Explanation:</strong>{' '}
+                            <RichMarkdown content={q.explanation} className="[&>p]:inline" />
+                          </div>
+                        )}
                       </div>
-                      <h4 className="text-sm font-semibold text-white">{q.question}</h4>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
+            {/* 4. FLASHCARD GENERATOR */}
+            {toolId === 'flashcards' && (
+              <div className="max-w-2xl mx-auto space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#9A9A9A]">
+                      Mastered: <strong className="text-white font-mono">{knownCount} / {flashcardsData.length}</strong>
+                    </span>
+                    <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                      {[6, 10, 12].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => { setFlashcardCount(cnt); runTool({ count: cnt }); }}
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-mono transition ${
+                            flashcardCount === cnt ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                          }`}
+                        >
+                          {cnt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const shuffled = [...flashcardsData].sort(() => Math.random() - 0.5);
+                      setFlashcardsData(shuffled);
+                      setCurrentCardIdx(0);
+                      setIsFlipped(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                  >
+                    <Shuffle className="w-3.5 h-3.5" />
+                    <span>Shuffle</span>
+                  </button>
+                </div>
+
+                {activeCard ? (
+                  <>
+                    <div
+                      onClick={() => setIsFlipped((f) => !f)}
+                      className="min-h-[19rem] rounded-2xl border border-[#2E2E2E] bg-[#0D0D0D] hover:border-white/35 p-6 sm:p-8 flex flex-col justify-between cursor-pointer select-none transition"
+                    >
+                      <div className="flex items-center justify-between text-xs text-[#9A9A9A]">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#1A1A1A] text-white border border-[#262626] font-medium text-[10px]">
+                          {activeCard.key_concept || 'Concept'}
+                        </span>
+                        <span className="font-mono">
+                          {currentCardIdx + 1} / {flashcardsData.length}
+                        </span>
+                      </div>
+
+                      <div className="py-6 text-center">
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-[#666666] block mb-3">
+                          {isFlipped ? 'Answer (Click or Space to flip)' : 'Question (Click or Space to reveal)'}
+                        </span>
+                        <div className="text-base sm:text-lg font-semibold text-white leading-relaxed">
+                          <RichMarkdown content={isFlipped ? activeCard.answer : activeCard.question} />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-[#9A9A9A] pt-3 border-t border-[#222222]">
+                        <span className="font-mono">Page {activeCard.page_number || 1}</span>
+                        <span className="inline-flex items-center gap-1 text-[11px] text-white">
+                          <RotateCcw className="w-3 h-3" /> Flip Card
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setCurrentCardIdx((i) => Math.max(0, i - 1)); setIsFlipped(false); }}
+                          disabled={currentCardIdx === 0}
+                          className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#1A1A1A] border border-[#262626] text-xs text-white disabled:opacity-40"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setCurrentCardIdx((i) => Math.min(flashcardsData.length - 1, i + 1)); setIsFlipped(false); }}
+                          disabled={currentCardIdx >= flashcardsData.length - 1}
+                          className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#1A1A1A] border border-[#262626] text-xs text-white disabled:opacity-40"
+                        >
+                          Next <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCardMastery((m) => ({ ...m, [currentCardIdx]: 'review' }));
+                            if (currentCardIdx < flashcardsData.length - 1) {
+                              setCurrentCardIdx((i) => i + 1);
+                              setIsFlipped(false);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-xl border text-xs font-medium transition ${
+                            cardMastery[currentCardIdx] === 'review'
+                              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                              : 'bg-[#1A1A1A] border-[#262626] text-[#9A9A9A] hover:text-white'
+                          }`}
+                        >
+                          Needs Review
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCardMastery((m) => ({ ...m, [currentCardIdx]: 'known' }));
+                            if (currentCardIdx < flashcardsData.length - 1) {
+                              setCurrentCardIdx((i) => i + 1);
+                              setIsFlipped(false);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-xl border text-xs font-semibold transition ${
+                            cardMastery[currentCardIdx] === 'known'
+                              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                              : 'bg-white text-black border-white hover:bg-neutral-200'
+                          }`}
+                        >
+                          Got It
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-[#9A9A9A] text-center py-8">No flashcards generated yet.</p>
+                )}
+              </div>
+            )}
+
+            {/* 5. IMPORTANT TOPICS FINDER */}
+            {toolId === 'topics' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                    {['All', 'High', 'Medium'].map((lvl) => (
+                      <button
+                        key={lvl}
+                        type="button"
+                        onClick={() => setTopicFilter(lvl)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium transition ${
+                          topicFilter === lvl ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
+                      >
+                        {lvl}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-[#9A9A9A] font-mono">{filteredTopics.length} topics</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {filteredTopics.map((t, idx) => (
+                    <div key={idx} className="p-4 rounded-xl border border-[#262626] bg-[#0D0D0D] flex flex-col justify-between gap-3">
                       <div className="space-y-2">
-                        {q.options?.map((opt) => {
-                          const isSelected = userAnswers[idx] === opt.id;
-                          const isCorrect = opt.id === q.correct_option_id;
-                          return (
-                            <button
-                              key={opt.id}
-                              onClick={() => setUserAnswers((prev) => ({ ...prev, [idx]: opt.id }))}
-                              className={`w-full p-3 rounded-xl border text-left text-xs transition flex items-center justify-between ${
-                                isSelected
-                                  ? isCorrect
-                                    ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300'
-                                    : 'bg-rose-500/15 border-rose-500 text-rose-300'
-                                  : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                              }`}
-                            >
-                              <span>
-                                <strong className="font-mono mr-2">{opt.id}.</strong> {opt.text}
-                              </span>
-                              {isSelected && isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                              {isSelected && !isCorrect && <XCircle className="w-4 h-4 text-rose-400" />}
-                            </button>
-                          );
-                        })}
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className={`px-2 py-0.5 rounded-full font-semibold border ${
+                            t.importance === 'High'
+                              ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                              : 'bg-[#1A1A1A] text-[#E5E5E5] border-[#262626]'
+                          }`}>
+                            {t.importance} Priority
+                          </span>
+                          <span className="text-[#9A9A9A] font-mono">Page {t.page_number}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white">{t.title}</h4>
+                        <div className="text-xs text-[#9A9A9A]">
+                          <RichMarkdown content={t.summary} />
+                        </div>
                       </div>
-
-                      {userAnswers[idx] && (
-                        <p className="text-[11px] text-slate-400 pt-2 border-t border-slate-800">
-                          <strong>Explanation:</strong> {q.explanation}
-                        </p>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/viewer?doc=${selectedDocId}&page=${t.page_number || 1}`)}
+                        className="text-left text-[11px] font-medium text-white hover:underline pt-2 border-t border-[#222222]"
+                      >
+                        Jump to Page {t.page_number || 1} in Reader →
+                      </button>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* 4. FLASHCARD GENERATOR */}
-            {activeTool === 'flashcards' && (
-              <div className="max-w-xl mx-auto space-y-4">
-                <div
-                  onClick={() => setIsFlipped(!isFlipped)}
-                  className="min-h-[18rem] rounded-2xl border border-slate-700 bg-gradient-to-br from-[#101726] to-[#151f33] p-8 flex flex-col justify-between shadow-2xl cursor-pointer select-none"
-                >
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold text-[10px]">
-                      {(flashcardsData[currentCardIdx] || DEMO_FLASHCARDS[0])?.key_concept || 'Core Concept'}
-                    </span>
-                    <span className="font-mono">
-                      {currentCardIdx + 1} / {(flashcardsData.length || DEMO_FLASHCARDS.length)}
-                    </span>
-                  </div>
-
-                  <div className="text-center py-6">
-                    <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-widest block mb-2">
-                      {isFlipped ? 'Answer' : 'Question (Click to flip)'}
-                    </span>
-                    <p className="text-base font-bold text-white leading-relaxed">
-                      {isFlipped
-                        ? (flashcardsData[currentCardIdx] || DEMO_FLASHCARDS[0])?.answer
-                        : (flashcardsData[currentCardIdx] || DEMO_FLASHCARDS[0])?.question}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-slate-800">
-                    <span>Citation: Page {(flashcardsData[currentCardIdx] || DEMO_FLASHCARDS[0])?.page_number || 1}</span>
-                    <span className="text-amber-400 flex items-center gap-1 text-[11px]">
-                      <RotateCcw className="w-3 h-3" /> Flip Card
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => {
-                      setCurrentCardIdx((prev) => Math.max(0, prev - 1));
-                      setIsFlipped(false);
-                    }}
-                    disabled={currentCardIdx === 0}
-                    className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentCardIdx((prev) => Math.min((flashcardsData.length || DEMO_FLASHCARDS.length) - 1, prev + 1));
-                      setIsFlipped(false);
-                    }}
-                    disabled={currentCardIdx >= (flashcardsData.length || DEMO_FLASHCARDS.length) - 1}
-                    className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 disabled:opacity-40"
-                  >
-                    Next Card
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* 5. IMPORTANT TOPICS FINDER */}
-            {activeTool === 'topics' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {(topicsData.length > 0 ? topicsData : [
-                  { title: 'Attention Variance Scaling (1/√d_k)', importance: 'High', page_number: 3, summary: 'Normalizes dot-product variance to prevent vanishing softmax gradients in deep Transformers.' },
-                  { title: 'Naturally Occurring Radon-222 Radiation', importance: 'High', page_number: 46, summary: 'Decay chain byproduct causing major inhalation hazards in confined geographical zones.' },
-                  { title: 'Multi-Head Attention Projections', importance: 'Medium', page_number: 4, summary: 'Enables joint subspace representation learning across distinct positional angles.' }
-                ]).map((t, idx) => (
-                  <div key={idx} className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                        t.importance === 'High' ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                      }`}>
-                        {t.importance} Exam Weight
-                      </span>
-                      <span className="text-slate-400 font-mono text-[11px]">Page {t.page_number}</span>
-                    </div>
-                    <h4 className="text-sm font-semibold text-white">{t.title}</h4>
-                    <p className="text-xs text-slate-300 leading-relaxed">{t.summary}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {/* 6. MIND MAP GENERATOR */}
-            {activeTool === 'mindmap' && (
+            {toolId === 'mindmap' && (
               <div className="space-y-4">
-                <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 overflow-x-auto">
-                  <div className="w-full lg:min-w-[600px] flex items-center justify-center p-2 sm:p-4">
-                    <div className="space-y-6 text-center w-full">
-                      <div className="inline-block px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-xl shadow-blue-500/20">
-                        🏛️ {mindMapData?.root_topic || selectedDocObj?.filename || 'Curriculum Subject'}
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-6">
-                        {(mindMapData?.mind_map?.children || [
-                          { name: 'Core Foundations', children: [{ name: 'Standard Definition' }, { name: 'Scope & Assumptions' }] },
-                          { name: 'Taxonomy & Types', children: [{ name: 'Primary Division' }, { name: 'Secondary Classification' }] },
-                          { name: 'Operational Protocols', children: [{ name: 'Mitigation Steps' }, { name: 'Safety Monitoring' }] },
-                          { name: 'Exam Applications', children: [{ name: 'Numerical Formulas' }, { name: 'Case Study Blueprint' }] }
-                        ]).map((branch, bIdx) => (
-                          <div key={bIdx} className="p-4 rounded-xl border border-slate-800 bg-[#111726] space-y-2 text-left">
-                            <span className="text-xs font-bold text-blue-400 block border-b border-slate-800 pb-1.5">
-                              {branch.name}
-                            </span>
-                            <div className="space-y-1 text-[11px] text-slate-300">
-                              {branch.children?.map((sub, sIdx) => (
-                                <div key={sIdx} className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                                  <span>{sub.name}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="inline-block px-4 py-2 rounded-xl bg-white text-black font-bold text-xs sm:text-sm">
+                    {mindMapData?.root_topic || selectedDocObj?.filename || 'Curriculum Subject'}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedBranches({})}
+                      className="px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-[11px] text-[#E5E5E5] hover:text-white"
+                    >
+                      Expand All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const all = {};
+                        (mindMapData?.mind_map?.children || []).forEach((b, i) => { all[b.id || i] = true; });
+                        setCollapsedBranches(all);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-[11px] text-[#E5E5E5] hover:text-white"
+                    >
+                      Collapse All
+                    </button>
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {(mindMapData?.mind_map?.children || []).map((branch, bIdx) => {
+                    const key = branch.id || bIdx;
+                    const isCollapsed = Boolean(collapsedBranches[key]);
+                    return (
+                      <div key={key} className="p-4 rounded-xl border border-[#262626] bg-[#0D0D0D] space-y-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setCollapsedBranches((prev) => ({ ...prev, [key]: !prev[key] }))}
+                          className="w-full flex items-center justify-between text-left pb-2 border-b border-[#222222]"
+                        >
+                          <span className="text-xs font-bold text-white">{branch.name}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-[#9A9A9A] transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
+                        </button>
+                        {!isCollapsed && (
+                          <div className="space-y-1.5">
+                            {branch.children?.map((sub, sIdx) => {
+                              const isPicked = selectedNode?.name === sub.name;
+                              return (
+                                <button
+                                  key={sub.id || sIdx}
+                                  type="button"
+                                  onClick={() => setSelectedNode(sub)}
+                                  className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition border ${
+                                    isPicked
+                                      ? 'bg-[#242424] border-white/40 text-white'
+                                      : 'bg-[#141414] border-[#222222] text-[#D4D4D4] hover:border-[#3A3A3A] hover:text-white'
+                                  }`}
+                                >
+                                  <div className="font-medium">{sub.name}</div>
+                                  {sub.note && <div className="text-[11px] text-[#9A9A9A] mt-0.5 line-clamp-2">{sub.note}</div>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {selectedNode && (
+                  <div className="p-4 rounded-xl border border-[#3A3A3A] bg-[#0D0D0D] flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in-up">
+                    <div className="space-y-1">
+                      <div className="text-xs font-bold text-white">{selectedNode.name}</div>
+                      {selectedNode.note && <p className="text-xs text-[#9A9A9A]">{selectedNode.note}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(selectedDocId ? `/chat?doc=${selectedDocId}` : '/chat')}
+                      className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:bg-neutral-200 shrink-0"
+                    >
+                      Explore in AI Tutor →
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* 7. PRACTICE QUESTION GENERATOR */}
-            {activeTool === 'practice' && (
+            {toolId === 'practice' && (
               <div className="space-y-4">
-                {(practiceData.length > 0 ? practiceData : [
-                  {
-                    type: 'Short Answer (5 Marks)',
-                    question: 'Define the governing mechanism in this curriculum and explain its primary real-world significance.',
-                    solution: 'Directly outlined on Page 3: The process establishes equilibrium constraints to minimize catastrophic variance.',
-                    difficulty: 'Easy',
-                    page: 3
-                  },
-                  {
-                    type: 'Descriptive & Taxonomy (8 Marks)',
-                    question: 'Categorize the core subdivisions detailed in your lecture slides. Compare and contrast each.',
-                    solution: 'Refer to Page 4: Divided into Primary active stages and Secondary mitigation phases.',
-                    difficulty: 'Medium',
-                    page: 4
-                  }
-                ]).map((p, idx) => (
-                  <div key={idx} className="p-5 rounded-xl border border-slate-800 bg-slate-900/60 space-y-2.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-rose-400">{p.type}</span>
-                      <span className="text-slate-400 font-mono text-[11px]">Page {p.page}</span>
-                    </div>
-                    <h4 className="text-sm font-semibold text-white">{p.question}</h4>
-                    <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 text-xs text-slate-300">
-                      <strong className="text-emerald-400 block mb-1">Model Solution / Rubric:</strong>
-                      {p.solution}
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                    {['All', 'Easy', 'Medium', 'Hard'].map((diff) => (
+                      <button
+                        key={diff}
+                        type="button"
+                        onClick={() => setPracticeDiffFilter(diff)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium transition ${
+                          practiceDiffFilter === diff ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
+                      >
+                        {diff}
+                      </button>
+                    ))}
                   </div>
-                ))}
+                  <span className="text-xs text-[#9A9A9A] font-mono">{filteredPractice.length} problems</span>
+                </div>
+
+                {filteredPractice.map((p, idx) => {
+                  const revealed = Boolean(practiceRevealed[idx]);
+                  return (
+                    <div key={idx} className="p-4 sm:p-5 rounded-xl border border-[#262626] bg-[#0D0D0D] space-y-3">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-white">{p.type} · <span className="text-[#9A9A9A]">{p.difficulty}</span></span>
+                        <span className="text-[#9A9A9A] font-mono">Page {p.page || 1}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-white">
+                        <RichMarkdown content={p.question} />
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={practiceDrafts[idx] || ''}
+                        onChange={(e) => setPracticeDrafts((d) => ({ ...d, [idx]: e.target.value }))}
+                        placeholder="Write your practice answer here before checking the rubric…"
+                        className="w-full rounded-xl bg-[#141414] border border-[#262626] p-3 text-xs text-white placeholder-[#666666] focus:outline-none focus:border-[#3A3A3A]"
+                      />
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setPracticeRevealed((r) => ({ ...r, [idx]: !r[idx] }))}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs font-medium text-white hover:bg-[#242424] transition"
+                        >
+                          {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span>{revealed ? 'Hide Model Solution' : 'Check Model Solution'}</span>
+                        </button>
+                      </div>
+                      {revealed && (
+                        <div className="p-4 rounded-xl bg-[#141414] border border-emerald-500/30 animate-fade-in-up">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400 block mb-1.5">
+                            Model Solution & Rubric
+                          </span>
+                          <RichMarkdown content={p.solution} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
             {/* 8. CODING TUTOR */}
-            {activeTool === 'coding' && (
+            {toolId === 'coding' && (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+                <div className="flex flex-wrap items-center gap-2">
+                  {CODING_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => { setCodingTopic(s); runTool({ codingTopic: s }); }}
+                      className="px-2.5 py-1 rounded-lg bg-[#0D0D0D] border border-[#262626] text-[11px] text-[#9A9A9A] hover:text-white hover:border-[#3A3A3A] transition"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 p-3 rounded-xl bg-[#0D0D0D] border border-[#262626]">
                   <input
                     type="text"
                     value={codingTopic}
                     onChange={(e) => setCodingTopic(e.target.value)}
-                    placeholder="Enter algorithm or topic (e.g. Self Attention, Binary Search)"
-                    className="flex-1 bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-200"
+                    onKeyDown={(e) => { if (e.key === 'Enter') runTool(); }}
+                    placeholder="Enter algorithm, data structure, or problem…"
+                    className="flex-1 min-w-[200px] bg-[#141414] border border-[#262626] rounded-lg px-3 py-2 text-xs text-white placeholder-[#666666] focus:outline-none focus:border-[#3A3A3A]"
                   />
                   <select
                     value={codingLang}
                     onChange={(e) => setCodingLang(e.target.value)}
-                    className="bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+                    className="bg-[#141414] border border-[#262626] rounded-lg px-3 py-2 text-xs text-white"
                   >
                     <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
                     <option value="cpp">C++</option>
                     <option value="java">Java</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="sql">SQL</option>
                   </select>
                   <button
-                    onClick={() => handleLaunchTool('coding')}
-                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                    type="button"
+                    onClick={() => runTool()}
+                    disabled={loading || !codingTopic.trim()}
+                    className="px-4 py-2 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold transition disabled:opacity-40"
                   >
-                    Solve
+                    Solve & Explain
                   </button>
                 </div>
 
-                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-6 text-sm text-slate-200 leading-relaxed prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {codingResult?.content || `### 💻 Coding Tutor: **${codingTopic}**\n\nClick "Solve" above to generate a complete algorithm implementation, step-by-step breakdown, and complexity analysis.`}
-                  </ReactMarkdown>
+                <div className="rounded-xl border border-[#222222] bg-[#0D0D0D] p-5 sm:p-6">
+                  <RichMarkdown content={codingResult?.content || `Enter an algorithm or topic above and click **Solve & Explain**.`} />
                 </div>
               </div>
             )}
 
             {/* 9. REVISION NOTES */}
-            {activeTool === 'revision' && (
+            {toolId === 'revision' && (
               <div className="space-y-4">
-                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-6 text-sm text-slate-200 leading-relaxed prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {revisionData?.title
-                      ? `# ⚡ ${revisionData.title}\n\n### 🎯 High-Yield Exam Memorization Points\n` +
-                        revisionData.high_yield_points?.map((p) => `- ${p}`).join('\n') +
-                        '\n\n### 🏛️ Essential Definitions\n' +
-                        revisionData.important_definitions?.map((d) => `- **${d.term}:** ${d.definition}`).join('\n') +
-                        '\n\n### 📝 Expected Exam Questions\n' +
-                        revisionData.potential_exam_questions?.map((q, i) => `${i + 1}. ${q}`).join('\n')
-                      : 'Click "Regenerate Output" to synthesize chapter-wise revision notes.'}
-                  </ReactMarkdown>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#222222]">
+                  <div className="inline-flex items-center p-0.5 rounded-lg bg-[#0D0D0D] border border-[#222222]">
+                    {[
+                      { id: 'points', label: 'Key Points' },
+                      { id: 'defs', label: 'Definitions' },
+                      { id: 'questions', label: 'Exam Questions' },
+                    ].map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setRevisionTab(t.id)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-medium transition ${
+                          revisionTab === t.id ? 'bg-white text-black font-semibold' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {revisionTab === 'defs' && (
+                      <button
+                        type="button"
+                        onClick={() => { setHiddenDefs((h) => !h); setRevealedDefIndices({}); }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-white transition"
+                      >
+                        {hiddenDefs ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        <span>{hiddenDefs ? 'Show All' : 'Self-Test Blur'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(buildRevisionMarkdown())}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
                 </div>
+
+                {revisionData?.title && (
+                  <h3 className="text-sm font-bold text-white">{revisionData.title}</h3>
+                )}
+
+                {revisionTab === 'points' && (
+                  <div className="space-y-2">
+                    {(revisionData?.high_yield_points || []).map((pt, i) => (
+                      <div key={i} className="p-3.5 rounded-xl bg-[#0D0D0D] border border-[#222222] text-xs text-[#E5E5E5] flex items-start gap-2.5">
+                        <span className="font-mono text-[#666666] mt-0.5">{i + 1}.</span>
+                        <div className="flex-1"><RichMarkdown content={pt} className="[&>p]:m-0" /></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {revisionTab === 'defs' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(revisionData?.important_definitions || []).map((d, i) => {
+                      const isBlurred = hiddenDefs && !revealedDefIndices[i];
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => isBlurred && setRevealedDefIndices((r) => ({ ...r, [i]: true }))}
+                          className={`p-4 rounded-xl bg-[#0D0D0D] border border-[#262626] space-y-1.5 ${isBlurred ? 'cursor-pointer hover:border-white/30' : ''}`}
+                        >
+                          <div className="text-xs font-bold text-white">{d.term}</div>
+                          <div className={`text-xs text-[#9A9A9A] transition ${isBlurred ? 'blur-sm select-none' : ''}`}>
+                            <RichMarkdown content={d.definition} className="[&>p]:m-0" />
+                          </div>
+                          {isBlurred && <span className="text-[10px] text-white/70 block">Click to reveal</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {revisionTab === 'questions' && (
+                  <div className="space-y-2">
+                    {(revisionData?.potential_exam_questions || []).map((q, i) => (
+                      <div key={i} className="p-3.5 rounded-xl bg-[#0D0D0D] border border-[#222222] text-xs text-white flex items-start gap-2.5">
+                        <span className="font-mono text-[#9A9A9A] shrink-0">Q{i + 1}.</span>
+                        <div className="flex-1"><RichMarkdown content={q} className="[&>p]:m-0" /></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
             {/* 10. QUESTION PAPER GENERATOR */}
-            {activeTool === 'paper' && (
-              <div className="space-y-6">
-                <div className="text-center space-y-1 p-4 rounded-xl bg-slate-900 border border-slate-800">
-                  <h3 className="text-base font-bold text-white">
-                    {paperData?.title || `Final Examination Paper: ${selectedDocObj?.filename || 'Curriculum'}`}
-                  </h3>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Time: {paperData?.time_allowed || '2 Hours'} | Total Marks: {paperData?.total_marks || 60}
-                  </p>
+            {toolId === 'paper' && (
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#222222]">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaperHints((v) => !v)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-white hover:bg-[#242424] transition"
+                  >
+                    {showPaperHints ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{showPaperHints ? 'Hide Answer Hints' : 'Show Answer Hints'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1A] border border-[#262626] text-xs text-[#E5E5E5] hover:text-white transition"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Paper</span>
+                  </button>
                 </div>
 
-                {(paperData?.sections || [
-                  {
-                    section: 'Section A: Objective & Conceptual Foundations (10 Marks)',
-                    instructions: 'Answer all questions. Each carries 2 marks.',
-                    questions: [
-                      '1. State the fundamental definition and scope of the curriculum topic.',
-                      '2. Differentiate between primary causes and secondary environmental hazards.',
-                      '3. Name two vital preparedness protocols detailed in the course notes.'
-                    ]
-                  },
-                  {
-                    section: 'Section B: Descriptive & Analytical Problems (20 Marks)',
-                    instructions: 'Answer any 4 out of 5 questions. Each carries 5 marks.',
-                    questions: [
-                      '1. Derive or explain the operational framework outlined on Page 3.',
-                      '2. Evaluate the socio-economic impacts associated with failure scenarios.',
-                      '3. Detail the key mitigation protocols with a structured workflow diagram.'
-                    ]
-                  }
-                ]).map((sec, sIdx) => (
-                  <div key={sIdx} className="p-5 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
-                    <div className="border-b border-slate-800 pb-2">
-                      <h4 className="text-sm font-bold text-blue-400">{sec.section}</h4>
-                      <p className="text-[11px] text-slate-400 italic">{sec.instructions}</p>
+                {paperData ? (
+                  <>
+                    <div className="text-center space-y-1 p-4 rounded-xl bg-[#0D0D0D] border border-[#262626]">
+                      <h3 className="text-base font-bold text-white">{paperData.title}</h3>
+                      <p className="text-xs text-[#9A9A9A] font-mono">
+                        Time: {paperData.time_allowed || '2 Hours'} · Total Marks: {paperData.total_marks || 60}
+                      </p>
                     </div>
-
-                    <div className="space-y-2 text-xs text-slate-200">
-                      {sec.questions.map((q, qIdx) => (
-                        <p key={qIdx} className="leading-relaxed">{q}</p>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                    {(paperData.sections || []).map((sec, sIdx) => (
+                      <div key={sIdx} className="p-4 sm:p-5 rounded-xl border border-[#262626] bg-[#0D0D0D] space-y-3">
+                        <div className="border-b border-[#222222] pb-2">
+                          <h4 className="text-sm font-bold text-white">{sec.section}</h4>
+                          <p className="text-[11px] text-[#9A9A9A] italic">{sec.instructions}</p>
+                        </div>
+                        <div className="space-y-3 text-xs text-[#E5E5E5]">
+                          {sec.questions?.map((q, qIdx) => (
+                            <div key={qIdx} className="space-y-1.5">
+                              <RichMarkdown content={q} className="[&>p]:m-0" />
+                              {showPaperHints && sec.answer_hints?.[qIdx] && (
+                                <div className="pl-3 border-l-2 border-emerald-500/40 text-[11px] text-emerald-300">
+                                  <RichMarkdown content={sec.answer_hints[qIdx]} className="[&>p]:m-0" />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-xs text-[#9A9A9A] text-center py-8">Select a document and click **Regenerate** to draft a mock exam paper.</p>
+                )}
               </div>
             )}
           </>

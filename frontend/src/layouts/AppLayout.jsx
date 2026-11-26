@@ -69,6 +69,9 @@ export default function AppLayout() {
       case '/profile':
         return 'My Profile & Credentials';
       default:
+        if (location.pathname.startsWith('/study-tools/') || location.pathname.startsWith('/workspace/study-tools/')) {
+          return 'AI Study Toolkit';
+        }
         return 'StudyMind AI';
     }
   };

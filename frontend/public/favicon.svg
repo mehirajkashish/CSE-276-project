@@ -1,83 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <defs>
-    <radialGradient id="bgGrad" cx="35%" cy="25%" r="85%">
-      <stop offset="0%" stop-color="#1E2030" />
-      <stop offset="55%" stop-color="#11121A" />
-      <stop offset="100%" stop-color="#07070B" />
-    </radialGradient>
-
-    <linearGradient id="coverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="50%" stop-color="#6366F1" />
-      <stop offset="100%" stop-color="#4F46E5" />
-    </linearGradient>
-
-    <linearGradient id="leftPageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" />
-      <stop offset="100%" stop-color="#E2E8F0" />
-    </linearGradient>
-
-    <linearGradient id="rightPageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F1F5F9" />
-      <stop offset="100%" stop-color="#CBD5E1" />
-    </linearGradient>
-
-    <linearGradient id="penBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="50%" stop-color="#818CF8" />
-      <stop offset="100%" stop-color="#6366F1" />
-    </linearGradient>
-
-    <linearGradient id="nibGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FDE68A" />
-      <stop offset="100%" stop-color="#F59E0B" />
-    </linearGradient>
-  </defs>
-
-  <!-- Rounded Obsidian App Badge -->
-  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#bgGrad)" stroke="#2A2D42" stroke-width="10" />
-
-  <!-- Outer Hardcover Binding of Open Book -->
-  <path d="M 66,172 C 66,154 80,142 98,144 C 154,148 214,162 256,190 C 298,162 358,148 414,144 C 432,142 446,154 446,172 L 446,386 C 446,402 433,414 417,412 C 360,406 298,412 256,434 C 214,412 152,406 95,412 C 79,414 66,402 66,386 Z" fill="url(#coverGrad)" />
-
-  <!-- Left Open Book Page -->
-  <path d="M 88,162 C 144,166 204,178 248,204 L 248,402 C 204,382 144,378 88,384 Z" fill="url(#leftPageGrad)" />
-
-  <!-- Right Open Book Page -->
-  <path d="M 424,162 C 368,166 308,178 264,204 L 264,402 C 308,382 368,378 424,384 Z" fill="url(#rightPageGrad)" />
-
-  <!-- Center Spine Crease -->
-  <rect x="248" y="200" width="16" height="206" rx="4" fill="#94A3B8" opacity="0.55" />
-
-  <!-- Handwritten Note Lines on Left Page -->
-  <line x1="118" y1="224" x2="218" y2="238" stroke="#64748B" stroke-width="14" stroke-linecap="round" opacity="0.55" />
-  <line x1="118" y1="270" x2="218" y2="284" stroke="#64748B" stroke-width="14" stroke-linecap="round" opacity="0.55" />
-  <line x1="118" y1="316" x2="196" y2="328" stroke="#64748B" stroke-width="14" stroke-linecap="round" opacity="0.55" />
-
-  <!-- Note Lines on Right Page -->
-  <line x1="294" y1="284" x2="390" y2="270" stroke="#64748B" stroke-width="14" stroke-linecap="round" opacity="0.4" />
-  <line x1="294" y1="328" x2="390" y2="316" stroke="#64748B" stroke-width="14" stroke-linecap="round" opacity="0.4" />
-
-  <!-- Subtle Pen Shadow over Book -->
-  <g transform="translate(8, 12)">
-    <path d="M 270,278 L 298,214 L 408,104 C 424,88 450,88 466,104 C 482,120 482,146 466,162 L 356,272 L 292,300 Z" fill="#05060A" opacity="0.38" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#FFFFFF" />
+  <g transform="translate(12, 12) scale(1.6667)" stroke="#0D0D0D" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z" />
+    <path d="M22 10v6" />
+    <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5" />
   </g>
-
-  <!-- Angled Academic Fountain Pen (Writing on Right Page) -->
-  <g>
-    <!-- Pen Cap / Barrel Body -->
-    <path d="M 304,200 L 402,102 C 420,84 449,84 467,102 C 485,120 485,149 467,167 L 369,265 Z" fill="url(#penBodyGrad)" stroke="#0D0F18" stroke-width="8" stroke-linejoin="round" />
-    <!-- Specular Highlight along Barrel -->
-    <line x1="340" y1="196" x2="424" y2="112" stroke="#E0F2FE" stroke-width="10" stroke-linecap="round" opacity="0.7" />
-    <!-- Metallic Collar Ring -->
-    <path d="M 294,210 L 316,188 L 381,253 L 359,275 Z" fill="#F8FAFC" stroke="#0D0F18" stroke-width="6" stroke-linejoin="round" />
-    <!-- Gold Fountain Nib -->
-    <path d="M 256,308 L 294,210 L 359,275 Z" fill="url(#nibGrad)" stroke="#0D0F18" stroke-width="7" stroke-linejoin="round" />
-    <!-- Nib Slit & Ink Breather Hole -->
-    <line x1="258" y1="306" x2="306" y2="258" stroke="#1E1B4B" stroke-width="6" stroke-linecap="round" />
-    <circle cx="309" cy="255" r="8" fill="#1E1B4B" />
-  </g>
-
-  <!-- Small Subtle AI Sparkle Accent (Upper Left) -->
-  <path d="M 134,80 L 143,103 L 166,112 L 143,121 L 134,144 L 125,121 L 102,112 L 125,103 Z" fill="#38BDF8" opacity="0.95" />
 </svg>
