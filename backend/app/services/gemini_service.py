@@ -8,10 +8,13 @@ from app.core.config import settings
 from app.models.schemas import SourceCitation
 
 SYSTEM_INSTRUCTION = (
-    "You are StudyMind AI, an expert personal academic study tutor, researcher, and mentor. "
-    "Help students genuinely grasp intuition, derivations, code, and exam structure with clarity and warmth. "
-    "Format responses using crisp Markdown: structured headings, numbered steps, comparison tables where helpful, "
-    "syntax-highlighted fenced code blocks, LaTeX math ($...$ and $$...$$), and callouts (`> **Note:** ...` or `> **Warning:** ...`). "
+    "You are StudyMind AI, a warm, intelligent personal AI assistant and academic study tutor. "
+    "Respond naturally and conversationally like ChatGPT: for casual chat, greetings, check-ins (e.g., 'how are you'), "
+    "thanks, encouragement, or everyday questions, reply warmly, concisely, and naturally in plain conversational prose "
+    "WITHOUT forcing academic headings, templates, tables, or quizzes. "
+    "When explaining academic, technical, mathematical, coding, or study topics, use crisp Markdown: structured headings, "
+    "numbered steps, comparison tables where helpful, syntax-highlighted fenced code blocks, LaTeX math ($...$ and $$...$$), "
+    "and callouts (`> **Note:** ...` or `> **Warning:** ...`). "
     "NEVER fabricate document filenames, page numbers, or quotes. Only cite sources actually provided in STUDY MATERIALS CONTEXT."
 )
 
@@ -76,18 +79,26 @@ TITLE_STOP_PREFIXES = (
 )
 
 GREETING_PATTERNS = [
-    r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening|day)|howdy)\b',
+    r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening|night|day)|howdy|yo|hiya)\b',
     r'^(who\s+are\s+you|what\s+can\s+you\s+do|what\s+is\s+studymind|help\s+me)\b',
-    r'^(what\'s\s+up|sup)\b'
+    r'^(what\'?s\s+up|sup|how\s+are\s+(you|u)|how\s+r\s+u|how\'?s\s+it\s+going|how\s+is\s+it\s+going|how\s+do\s+you\s+do|how\s+have\s+you\s+been)\b',
+]
+
+CASUAL_CHAT_PATTERNS = [
+    *GREETING_PATTERNS,
+    r'^(thanks?|thank\s+you|thx|ty|appreciate\s+it)\b',
+    r'^(bye|goodbye|see\s+you|see\s+ya|take\s+care|gn|goodnight)\b',
+    r'^(ok|okay|cool|great|nice|awesome|got\s+it|alright|sure|fine|good|i\'?m\s+(good|fine|great|okay|ok|tired|bored|stressed))\b',
+    r'^(tell\s+me\s+a\s+joke|motivate\s+me|cheer\s+me\s+up)\b',
 ]
 
 
 class GeminiService:
     FALLBACK_MODELS = [
         "gemini-flash-lite-latest",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
         "gemini-flash-latest",
     ]
 
@@ -99,19 +110,57 @@ class GeminiService:
 
     def is_greeting(self, question: str) -> bool:
         clean = question.strip().lower()
-        if len(clean) < 30:
+        if len(clean) <= 60:
             for pattern in GREETING_PATTERNS:
                 if re.search(pattern, clean):
                     return True
         return False
 
-    def get_greeting_response(self, user_name: Optional[str] = None) -> str:
-        name_str = f", **{user_name}**" if user_name else ""
+    def is_casual_conversation(self, question: str) -> bool:
+        """Detects greetings, check-ins, thanks, and everyday casual messages that shouldn't force RAG warnings or academic rubrics."""
+        clean = question.strip().lower()
+        if len(clean) <= 80:
+            for pattern in CASUAL_CHAT_PATTERNS:
+                if re.search(pattern, clean):
+                    return True
+        return False
+
+    def get_greeting_response(self, user_name: Optional[str] = None, question: str = "") -> str:
+        """Natural conversational fallback used only when Gemini API is unavailable or for simple offline greetings."""
+        return self._synthesize_conversational_reply(question, user_name=user_name)
+
+    def _synthesize_conversational_reply(self, question: str, user_name: Optional[str] = None) -> str:
+        q_lower = (question or "").strip().lower()
+        first_name = (user_name or "").strip().split()[0] if user_name and user_name.strip() else ""
+        name_comma = f", {first_name}" if first_name else ""
+
+        if any(p in q_lower for p in ["how are you", "how are u", "how r u", "how's it going", "how is it going", "how have you been", "how's everything"]):
+            return (
+                f"I'm doing great{name_comma}, thanks for asking! 😊 How is your day going?\n\n"
+                f"We can just chat, brainstorm, or dive into your study notes whenever you're ready."
+            )
+        if any(p in q_lower for p in ["thank", "thx", "appreciate"]):
+            return f"You're very welcome{name_comma}! Let me know anytime if there's anything else you'd like to talk about or study."
+        if any(p in q_lower for p in ["bye", "goodbye", "see you", "see ya", "goodnight", "good night", "take care"]):
+            return f"Take care{name_comma}! Best of luck with everything — come back anytime you want to chat or study."
+        if "joke" in q_lower:
+            return "Why do programmers prefer dark mode? Because light attracts bugs! 😄 Want another one, or ready to tackle something else?"
+        if any(p in q_lower for p in ["tired", "stressed", "overwhelmed", "bored"]):
+            return (
+                f"Totally understandable{name_comma} — studying nonstop can wear anyone out. "
+                f"Take a quick breather, grab some water, and if you want, we can break whatever you're working on into tiny, easy steps."
+            )
+        if any(p in q_lower for p in ["who are you", "what can you do", "what is studymind"]):
+            return (
+                f"I'm **StudyMind AI**, your personal study partner and chat assistant! "
+                f"You can chat with me normally about anything, ask for step-by-step explanations, debug code, solve math, or upload PDFs for page-cited answers."
+            )
+        if re.match(r"^(ok|okay|cool|great|nice|awesome|got it|alright|sure|fine|good)\b", q_lower):
+            return f"Sounds good{name_comma}! What's on your mind next?"
+
         return (
-            f"Hello{name_str}! 👋 Welcome to **StudyMind AI**.\n\n"
-            f"I'm here to help you study your course materials. You can ask me questions about your uploaded PDFs, "
-            f"request concept explanations, or ask for practice questions.\n\n"
-            f"What would you like to review today?"
+            f"Hey{name_comma}! 👋 How's it going?\n\n"
+            f"Feel free to chat with me normally about anything, or ask a question about your studies or uploaded PDFs."
         )
 
     def _clean_slide_text(self, text: str) -> str:
@@ -143,7 +192,16 @@ class GeminiService:
         mode: Optional[str] = "learn",
         has_citations: bool = False,
         strict_doc_missing: bool = False,
+        is_casual: bool = False,
     ) -> str:
+        if is_casual:
+            return (
+                "You are StudyMind AI, a friendly, helpful personal AI assistant and study companion. "
+                "The user is chatting casually (greeting, check-in, thanks, small talk, or general everyday chat). "
+                "Reply naturally, warmly, and concisely in plain conversational prose like ChatGPT. "
+                "Do NOT force academic headings, bulleted rubrics, tables, or quizzes unless the user asks a study question."
+            )
+
         lvl = self.normalize_level(level)
         md = self.normalize_mode(mode)
         parts = [SYSTEM_INSTRUCTION, LEVEL_INSTRUCTIONS[lvl], MODE_INSTRUCTIONS[md]]
@@ -157,9 +215,56 @@ class GeminiService:
             parts.append(
                 "DOCUMENT COVERAGE RULE:\n"
                 "- No matching passages were found in the student's uploaded PDFs for this query.\n"
-                "- Begin with a clear callout stating that this topic was NOT found in their uploaded documents, then provide general academic guidance clearly separated as general knowledge."
+                "- If the user is simply chatting casually or asking an everyday non-course question, answer naturally without a document warning. "
+                "Otherwise, begin with a brief callout noting this topic was NOT found in their uploaded documents, then answer helpfully using general knowledge."
             )
         return "\n\n".join(parts)
+
+    def _prepare_general_prompt(
+        self,
+        question: str,
+        user_name: Optional[str] = None,
+        level: str = "intermediate",
+        mode: str = "learn",
+        strict_doc_missing: bool = False,
+        searched_docs: Optional[List[str]] = None,
+    ) -> Tuple[str, str, bool]:
+        is_casual = self.is_casual_conversation(question)
+        sys_inst = self.build_system_instruction(
+            level=level,
+            mode=mode,
+            has_citations=False,
+            strict_doc_missing=strict_doc_missing and not is_casual,
+            is_casual=is_casual,
+        )
+
+        if is_casual:
+            first_name = (user_name or "").strip().split()[0] if user_name and user_name.strip() else ""
+            name_note = f" (Student's first name: {first_name})" if first_name else ""
+            user_prompt = (
+                f"USER MESSAGE{name_note}:\n{question}\n\n"
+                f"Respond naturally, warmly, and directly as a helpful conversational AI assistant."
+            )
+            return sys_inst, user_prompt, True
+
+        scope_note = ""
+        if strict_doc_missing:
+            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
+            scope_note = (
+                f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
+                f"If this is an academic/document question, start with a brief `> **Note — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
+                f"then answer helpfully using general knowledge. If it's casual/everyday chat, just reply normally.\n\n"
+            )
+
+        user_prompt = (
+            f"{scope_note}"
+            f"USER'S MESSAGE:\n{question}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"If the message is casual conversation or everyday chat, reply naturally like ChatGPT without forced templates. "
+            f"For study, coding, math, or technical questions, use your active explanation level and smart chat mode, "
+            f"maintain prior conversation context, and format clearly with Markdown/LaTeX/code blocks where helpful."
+        )
+        return sys_inst, user_prompt, False
 
     def generate_conversation_title(self, question: str) -> str:
         clean = " ".join((question or "").strip().split())
@@ -209,34 +314,18 @@ class GeminiService:
         searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Answers student questions when no PDF matches or for general academic queries.
-        Adapts explanation depth, smart chat mode, and prior conversation history.
+        Answers normal conversational messages and general academic queries when no PDF matches.
+        Adapts to casual chat vs explanation depth, smart chat mode, and prior conversation history.
         """
         api_key = settings.gemini_api_key.strip()
         model_name = settings.gemini_model or self.default_model
-        sys_inst = self.build_system_instruction(
+        sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
+            question=question,
+            user_name=user_name,
             level=level,
             mode=mode,
-            has_citations=False,
             strict_doc_missing=strict_doc_missing,
-        )
-
-        scope_note = ""
-        if strict_doc_missing:
-            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
-            scope_note = (
-                f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
-                f"Start with a `> **Warning — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
-                f"then answer using accurate general academic knowledge.\n\n"
-            )
-
-        user_prompt = (
-            f"{scope_note}"
-            f"STUDENT'S QUESTION:\n{question}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"Use the active explanation level and smart chat mode defined in your system instructions. "
-            f"Respect follow-up context from earlier turns in this conversation if present. "
-            f"Keep formatting readable with Markdown headings, lists/tables, LaTeX math, or syntax-highlighted code blocks where appropriate."
+            searched_docs=searched_docs,
         )
 
         if api_key:
@@ -251,7 +340,7 @@ class GeminiService:
                 return {
                     "answer": answer,
                     "grounded": False,
-                    "not_found_in_docs": strict_doc_missing,
+                    "not_found_in_docs": strict_doc_missing and not is_casual,
                     "model_used": used_model,
                 }
             except Exception as e:
@@ -260,6 +349,7 @@ class GeminiService:
         # Local intelligent tutor fallback if API key is not configured or offline
         local_ans = self._synthesize_general_academic_fallback(
             question,
+            user_name=user_name,
             level=level,
             mode=mode,
             conversation_history=conversation_history,
@@ -269,19 +359,23 @@ class GeminiService:
         return {
             "answer": local_ans,
             "grounded": False,
-            "not_found_in_docs": strict_doc_missing,
-            "model_used": "local-academic-tutor",
+            "not_found_in_docs": strict_doc_missing and not is_casual,
+            "model_used": "StudyMind Conversational" if is_casual else "local-academic-tutor",
         }
 
     def _synthesize_general_academic_fallback(
         self,
         question: str,
+        user_name: Optional[str] = None,
         level: str = "intermediate",
         mode: str = "learn",
         conversation_history: Optional[List[Dict[str, str]]] = None,
         strict_doc_missing: bool = False,
         searched_docs: Optional[List[str]] = None,
     ) -> str:
+        if self.is_casual_conversation(question):
+            return self._synthesize_conversational_reply(question, user_name=user_name)
+
         q_clean = question.strip()
         q_lower = q_clean.lower()
         lvl = self.normalize_level(level)
@@ -417,16 +511,8 @@ class GeminiService:
     ) -> Dict[str, Any]:
         """
         Generates an answer grounded in retrieved RAG context using Gemini API with conversation memory.
-        If no citations exist, communicates clearly and provides general tutor help if appropriate.
+        If no citations exist, handles casual conversation and general queries naturally.
         """
-        if self.is_greeting(question):
-            return {
-                "answer": self.get_greeting_response(user_name),
-                "grounded": False,
-                "not_found_in_docs": False,
-                "model_used": "conversational-agent",
-            }
-
         if not citations:
             return self.generate_general_academic_answer(
                 question=question,
@@ -512,7 +598,7 @@ class GeminiService:
             except Exception:
                 err_msg = err_text
             last_error = f"Gemini API Error ({resp.status_code}): {err_msg}"
-            if resp.status_code not in (404, 429, 503) or idx == len(candidates_to_try) - 1:
+            if resp.status_code not in (404, 429, 500, 503) or idx == len(candidates_to_try) - 1:
                 raise Exception(last_error)
 
         if resp is None or resp.status_code != 200:
@@ -576,7 +662,7 @@ class GeminiService:
             except Exception:
                 err_msg = err_text
             last_error = f"Gemini Stream Error ({r.status_code}): {err_msg}"
-            if r.status_code not in (404, 429, 503) or idx == len(candidates_to_try) - 1:
+            if r.status_code not in (404, 429, 500, 503) or idx == len(candidates_to_try) - 1:
                 raise Exception(last_error)
 
         if resp is None:
@@ -621,35 +707,20 @@ class GeminiService:
         Yields streaming text delta dicts {"text": ..., "model_used": ...} via Gemini SSE
         with graceful chunked local fallback if Gemini is unconfigured or errors before output starts.
         """
-        if self.is_greeting(question):
-            msg = self.get_greeting_response(user_name)
-            for piece in self._chunk_text_for_stream(msg):
-                yield {"text": piece, "model_used": "StudyMind Conversational"}
-            return
-
         api_key = settings.gemini_api_key.strip()
         model_name = settings.gemini_model or self.default_model
+        is_casual = False
 
         if citations:
             sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
         else:
-            sys_inst = self.build_system_instruction(
+            sys_inst, user_prompt, is_casual = self._prepare_general_prompt(
+                question=question,
+                user_name=user_name,
                 level=level,
                 mode=mode,
-                has_citations=False,
                 strict_doc_missing=strict_doc_missing,
-            )
-            scope_note = ""
-            if strict_doc_missing:
-                docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
-                scope_note = (
-                    f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
-                    f"Start with a `> **Warning — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
-                    f"then provide general academic guidance.\n\n"
-                )
-            user_prompt = (
-                f"{scope_note}STUDENT'S QUESTION:\n{question}\n\n"
-                f"INSTRUCTIONS:\nFollow your active explanation level and smart chat mode and maintain conversation continuity."
+                searched_docs=searched_docs,
             )
 
         yielded_any = False
@@ -678,13 +749,14 @@ class GeminiService:
         else:
             fallback_text = self._synthesize_general_academic_fallback(
                 question,
+                user_name=user_name,
                 level=level,
                 mode=mode,
                 conversation_history=conversation_history,
                 strict_doc_missing=strict_doc_missing,
                 searched_docs=searched_docs,
             )
-            used = "local-academic-tutor"
+            used = "StudyMind Conversational" if is_casual else "local-academic-tutor"
 
         for piece in self._chunk_text_for_stream(fallback_text):
             yield {"text": piece, "model_used": used}

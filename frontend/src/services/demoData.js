@@ -388,6 +388,25 @@ export function generateDemoChatResponse(question) {
     };
   }
 
+  if (/^(how are you|how are u|how r u|how's it going|how is it going)\b/.test(clean)) {
+    return {
+      answer:
+        "I'm doing great, thanks for asking! 😊 How is your day going? We can just chat or jump into your study notes whenever you're ready.",
+      grounded: false,
+      sources: [],
+    };
+  }
+
+  if (/^(thanks?|thank you|thx|bye|goodbye|ok|okay|cool|great|nice)\b/.test(clean)) {
+    return {
+      answer: clean.startsWith('bye') || clean.startsWith('good')
+        ? 'Take care! Come back anytime you want to chat or study.'
+        : "You're welcome! Let me know what you'd like to talk about or explore next.",
+      grounded: false,
+      sources: [],
+    };
+  }
+
   if (clean.includes('hi') || clean.includes('hello') || clean.includes('hey')) {
     return {
       answer:

@@ -209,7 +209,7 @@ def _prepare_chat_context(db: Session, current_user: User, request: ChatRequest)
     history = _load_user_conversation_history(db, conversation.id, current_user.id)
     top_k = request.top_k if request.top_k and request.top_k > 0 else (6 if mode == "research" else 4)
 
-    is_greeting = gemini_service.is_greeting(clean_question)
+    is_greeting = gemini_service.is_casual_conversation(clean_question)
     citations: List[SourceCitation] = []
     searched_names: List[str] = []
     user_docs_count = 0
@@ -253,25 +253,6 @@ def chat_with_rag(
     start_time = time.time()
     ctx = _prepare_chat_context(db, current_user, request)
     conv: ChatConversation = ctx["conversation"]
-
-    if ctx["is_greeting"]:
-        greeting_text = gemini_service.get_greeting_response(current_user.full_name)
-        user_msg, asst_msg = _persist_turn(db, conv.id, ctx["clean_question"], greeting_text, [])
-        return ChatResponse(
-            answer=greeting_text,
-            sources=[],
-            conversation_id=conv.id,
-            message_id=asst_msg.id,
-            user_message_id=user_msg.id,
-            grounded=False,
-            not_found_in_docs=False,
-            mode=ctx["mode"],
-            explanation_level=ctx["level"],
-            title=conv.title,
-            llm_provider="Conversational Agent",
-            model_used="StudyMind Conversational",
-            execution_time_ms=round((time.time() - start_time) * 1000, 2),
-        )
 
     gen_result = gemini_service.generate_rag_answer(
         question=ctx["clean_question"],
