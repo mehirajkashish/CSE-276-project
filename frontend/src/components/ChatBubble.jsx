@@ -108,15 +108,15 @@ function CodeBlock({ className, children }) {
   };
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-[#1E2E4A] bg-[#080D18] shadow-lg not-prose">
-      <div className="flex items-center justify-between px-3.5 py-2 bg-[#0D1628] border-b border-[#1E2E4A] text-[11px]">
-        <span className="font-mono font-semibold uppercase tracking-wider text-[#4F8CFF]">
+    <div className="my-3 rounded-xl overflow-hidden border border-[#262626] bg-[#0D0D0D] shadow-sm not-prose">
+      <div className="flex items-center justify-between px-3.5 py-2 bg-[#141414] border-b border-[#222222] text-[11px]">
+        <span className="font-mono font-semibold uppercase tracking-wider text-[#E5E5E5]">
           {lang || 'code'}
         </span>
         <button
           type="button"
           onClick={handleCopyCode}
-          className="inline-flex items-center gap-1.5 text-[#8A9BB8] hover:text-[#F1F5FC] transition px-2 py-0.5 rounded-md hover:bg-[#16243B]"
+          className="inline-flex items-center gap-1.5 text-[#9A9A9A] hover:text-white transition px-2 py-0.5 rounded-md hover:bg-[#1F1F1F]"
         >
           {copiedCode ? (
             <>
@@ -126,12 +126,12 @@ function CodeBlock({ className, children }) {
           ) : (
             <>
               <Copy className="w-3 h-3" />
-              <span>Copy code</span>
+              <span>Copy</span>
             </>
           )}
         </button>
       </div>
-      <pre className="p-3.5 overflow-x-auto text-xs leading-relaxed font-mono text-[#F1F5FC] select-text m-0">
+      <pre className="p-3.5 overflow-x-auto text-xs leading-relaxed font-mono text-[#E5E5E5] select-text m-0">
         <code>{highlightCodeLine(rawCode)}</code>
       </pre>
     </div>
@@ -527,66 +527,76 @@ export default function ChatBubble({
 
   if (isSystem) {
     return (
-      <div className="py-2.5 px-4 max-w-2xl mx-auto my-2 rounded-xl text-xs flex items-center gap-2.5"
-        style={{ background: 'rgba(17,28,46,0.5)', border: '1px solid rgba(79,140,255,0.15)' }}>
-        <Info className="w-4 h-4 shrink-0 text-[#4F8CFF]" />
-        <div className="flex-1 font-medium text-[#94A3B8]">{displayContent}</div>
+      <div className="py-2 px-3.5 max-w-2xl mx-auto my-2 rounded-xl text-xs flex items-center gap-2.5 bg-[#141414] border border-[#262626]">
+        <Info className="w-3.5 h-3.5 shrink-0 text-[#9A9A9A]" />
+        <div className="flex-1 font-medium text-[#9A9A9A]">{displayContent}</div>
       </div>
     );
   }
 
   return (
     <div
-      className="group/msg py-5 sm:py-6 transition-all animate-fade-in-up"
+      className={`group/msg py-2.5 sm:py-3 flex ${
+        isUser ? 'justify-start animate-msg-left' : 'justify-end animate-msg-right'
+      }`}
     >
-      <div className="flex items-start gap-4">
-        {/* Avatar */}
-        <div className="shrink-0 mt-1">
+      <div
+        className={`flex items-start gap-2.5 sm:gap-3 ${
+          isUser
+            ? 'flex-row max-w-[86%] sm:max-w-[76%]'
+            : 'flex-row-reverse max-w-[94%] sm:max-w-[84%]'
+        }`}
+      >
+        {/* Avatar matching StudyMind AI monochrome brand */}
+        <div className="shrink-0 mt-0.5">
           {isUser ? (
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: 'rgba(79,140,255,0.12)', border: '1px solid rgba(79,140,255,0.2)' }}>
-              <User className="w-4 h-4 text-[#4F8CFF]" />
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#1A1A1A] border border-[#262626]">
+              <User className="w-3.5 h-3.5 text-[#9A9A9A]" />
             </div>
           ) : (
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-lg shadow-[#4F8CFF]/15"
-              style={{ background: 'linear-gradient(135deg, #4F8CFF, #8B7CFF)' }}>
-              <GraduationCap className="w-4 h-4 text-white stroke-[2.3]" />
+            <div
+              className={`w-7 h-7 rounded-lg flex items-center justify-center bg-white text-black shadow-sm transition-transform ${
+                isStreaming ? 'animate-pulse ring-2 ring-white/25' : ''
+              }`}
+            >
+              <GraduationCap className="w-4 h-4 stroke-[2.4]" />
             </div>
           )}
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className={`min-w-0 space-y-1.5 ${isUser ? 'items-start' : 'flex-1'}`}>
           {/* Header */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-[#F1F5FC]">
+          <div
+            className={`flex flex-wrap items-center gap-2 ${
+              isUser ? 'justify-between' : 'flex-row-reverse justify-between'
+            }`}
+          >
+            <div className={`flex flex-wrap items-center gap-1.5 ${isUser ? '' : 'flex-row-reverse'}`}>
+              <span className="text-[11px] font-semibold text-white">
                 {isUser ? 'You' : 'StudyMind AI'}
               </span>
               {!isUser && uniqueSources.length > 0 && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', color: '#6EE7B7' }}>
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#141414] border border-[#262626] text-emerald-400">
                   <ShieldCheck className="w-2.5 h-2.5" />
                   {uniqueSources.length} source{uniqueSources.length !== 1 ? 's' : ''}
                 </span>
               )}
               {!isUser && message.not_found_in_docs && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#FCD34D' }}>
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#141414] border border-amber-500/30 text-amber-300">
                   <AlertTriangle className="w-2.5 h-2.5" />
                   Not in PDFs
                 </span>
               )}
               {!isUser && message.mode && (
-                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(79,140,255,0.08)', border: '1px solid rgba(79,140,255,0.15)', color: '#93C5FD' }}>
+                <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded-md bg-[#141414] border border-[#222222] text-[#9A9A9A]">
                   {message.mode}
                 </span>
               )}
-              {!isUser && message.explanation_level && (
-                <span className="text-[10px] font-mono capitalize px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(139,124,255,0.08)', border: '1px solid rgba(139,124,255,0.15)', color: '#C4B5FD' }}>
-                  {message.explanation_level}
+              {!isUser && isStreaming && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-[#9A9A9A] font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  Replying
                 </span>
               )}
             </div>
@@ -599,8 +609,7 @@ export default function ChatBubble({
                   type="button"
                   disabled={disabledActions}
                   onClick={startEditing}
-                  className="sm:opacity-0 sm:group-hover/msg:opacity-100 focus-within:opacity-100 inline-flex items-center gap-1 text-[11px] text-[#94A3B8] hover:text-[#F1F5FC] px-2 py-0.5 rounded-lg transition disabled:opacity-30"
-                  style={{ border: '1px solid transparent' }}
+                  className="sm:opacity-0 sm:group-hover/msg:opacity-100 focus-within:opacity-100 inline-flex items-center gap-1 text-[11px] text-[#9A9A9A] hover:text-white px-2 py-0.5 rounded-lg transition disabled:opacity-30"
                   title="Edit and resend question"
                 >
                   <Pencil className="w-3 h-3" />
@@ -614,12 +623,11 @@ export default function ChatBubble({
                   <button
                     type="button"
                     onClick={handleTextToSpeech}
-                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition"
-                    style={isSpeaking
-                      ? { background: 'rgba(79,140,255,0.15)', color: '#93C5FD', border: '1px solid rgba(79,140,255,0.3)' }
-                      : { color: '#94A3B8', border: '1px solid transparent' }}
-                    onMouseEnter={(e) => { if (!isSpeaking) e.currentTarget.style.color='#F1F5FC'; }}
-                    onMouseLeave={(e) => { if (!isSpeaking) e.currentTarget.style.color='#94A3B8'; }}
+                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition ${
+                      isSpeaking
+                        ? 'bg-[#242424] text-white border border-[#3A3A3A]'
+                        : 'text-[#9A9A9A] hover:text-white'
+                    }`}
                     title={isSpeaking ? 'Stop reading aloud' : 'Read answer aloud'}
                   >
                     {isSpeaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -629,10 +637,9 @@ export default function ChatBubble({
                   <button
                     type="button"
                     onClick={handleCopy}
-                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition"
-                    style={{ color: copied ? '#6EE7B7' : '#94A3B8', border: '1px solid transparent' }}
-                    onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color='#F1F5FC'; }}
-                    onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color='#94A3B8'; }}
+                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition ${
+                      copied ? 'text-emerald-400' : 'text-[#9A9A9A] hover:text-white'
+                    }`}
                     title="Copy response"
                   >
                     {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -644,10 +651,7 @@ export default function ChatBubble({
                       type="button"
                       disabled={disabledActions}
                       onClick={onRegenerate}
-                      className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition disabled:opacity-30"
-                      style={{ color: '#94A3B8', border: '1px solid transparent' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color='#4F8CFF'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color='#94A3B8'; }}
+                      className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg text-[#9A9A9A] hover:text-white transition disabled:opacity-30"
                       title="Regenerate response"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -656,16 +660,18 @@ export default function ChatBubble({
                   )}
 
                   {onFeedback && message.id && (
-                    <div className="flex items-center gap-0.5 pl-1 border-l border-white/[0.08]">
+                    <div className="flex items-center gap-0.5 pl-1 border-l border-[#222222]">
                       <button type="button" onClick={() => handleFeedbackClick('helpful')}
-                        className="p-1.5 rounded-lg transition"
-                        style={{ color: localFeedback === 'helpful' ? '#6EE7B7' : '#94A3B8', background: localFeedback === 'helpful' ? 'rgba(52,211,153,0.1)' : 'transparent' }}
+                        className={`p-1.5 rounded-lg transition ${
+                          localFeedback === 'helpful' ? 'text-emerald-400 bg-emerald-500/10' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
                         title="Helpful">
                         <ThumbsUp className="w-3 h-3" />
                       </button>
                       <button type="button" onClick={() => handleFeedbackClick('not_helpful')}
-                        className="p-1.5 rounded-lg transition"
-                        style={{ color: localFeedback === 'not_helpful' ? '#FCA5A5' : '#94A3B8', background: localFeedback === 'not_helpful' ? 'rgba(239,68,68,0.1)' : 'transparent' }}
+                        className={`p-1.5 rounded-lg transition ${
+                          localFeedback === 'not_helpful' ? 'text-rose-400 bg-rose-500/10' : 'text-[#9A9A9A] hover:text-white'
+                        }`}
                         title="Not helpful">
                         <ThumbsDown className="w-3 h-3" />
                       </button>
@@ -683,18 +689,15 @@ export default function ChatBubble({
                 rows={3}
                 value={editDraft}
                 onChange={(e) => setEditDraft(e.target.value)}
-                className="w-full p-3 rounded-xl text-sm text-[#F1F5FC] focus:outline-none resize-y"
-                style={{ background: 'rgba(8,13,24,0.8)', border: '1px solid rgba(79,140,255,0.4)' }}
+                className="w-full p-3 rounded-xl text-sm text-white bg-[#141414] border border-[#3A3A3A] focus:outline-none focus:border-white/40 resize-y"
               />
               <div className="flex items-center justify-end gap-2">
                 <button type="button" onClick={() => setIsEditing(false)}
-                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs text-[#94A3B8] hover:text-[#F1F5FC] transition"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs text-[#9A9A9A] hover:text-white bg-[#1A1A1A] border border-[#262626] transition">
                   <X className="w-3 h-3" /> Cancel
                 </button>
                 <button type="button" disabled={!editDraft.trim()} onClick={submitEdit}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition"
-                  style={{ background: '#4F8CFF' }}>
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-white text-black hover:bg-neutral-200 disabled:opacity-40 transition">
                   <Send className="w-3 h-3" /> Save & Resend
                 </button>
               </div>
@@ -702,24 +705,24 @@ export default function ChatBubble({
           ) : (
             <div
               ref={contentRef}
-              className="text-sm text-[#E2E8F0] leading-relaxed font-sans break-words prose prose-invert prose-sm max-w-none prose-headings:text-[#F1F5FC] prose-strong:text-[#F1F5FC] prose-a:text-[#4F8CFF] prose-p:text-[#E2E8F0] prose-li:text-[#E2E8F0]"
+              className={`text-sm text-[#E5E5E5] leading-relaxed font-sans break-words prose prose-invert prose-sm max-w-none prose-headings:text-white prose-strong:text-white prose-a:text-white prose-a:underline prose-p:text-[#E5E5E5] prose-li:text-[#E5E5E5] ${
+                isUser
+                  ? 'text-left'
+                  : `text-left rounded-2xl rounded-tr-sm px-4 py-3 bg-[#141414] border transition-colors ${
+                      isStreaming ? 'reply-streaming-card border-white/20' : 'border-[#242424]'
+                    }`
+              }`}
             >
               {isUser ? (
-                <div
-                  className="inline-block max-w-full rounded-2xl px-4 py-2.5 text-[#F1F5FC]"
-                  style={{
-                    background: 'rgba(79,140,255,0.08)',
-                    border: '1px solid rgba(79,140,255,0.16)',
-                  }}
-                >
-                  <p className="whitespace-pre-wrap m-0 text-[#F1F5FC]">{displayContent}</p>
+                <div className="inline-block max-w-full rounded-2xl rounded-tl-sm px-4 py-2.5 bg-[#1A1A1A] border border-[#262626] text-white">
+                  <p className="whitespace-pre-wrap m-0 text-white">{displayContent}</p>
                 </div>
               ) : isStreaming && !displayContent ? (
-                <div className="flex items-center gap-2 text-xs text-[#94A3B8] py-1">
-                  <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#4F8CFF] animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#8B7CFF] animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#4F8CFF] animate-bounce" />
+                <div className="flex items-center gap-2.5 text-xs text-[#9A9A9A] py-0.5">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-typing-dot-1" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-typing-dot-2" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-typing-dot-3" />
                   </span>
                   <span>Thinking…</span>
                 </div>
@@ -727,7 +730,7 @@ export default function ChatBubble({
                 <>
                   <MarkdownWithMath content={displayContent} />
                   {isStreaming && (
-                    <span className="inline-block w-2 h-4 ml-1 align-middle bg-[#4F8CFF] rounded-sm animate-pulse" />
+                    <span className="inline-block w-1.5 h-4 ml-1 align-middle bg-white rounded-sm animate-stream-cursor" />
                   )}
                 </>
               )}
@@ -736,7 +739,7 @@ export default function ChatBubble({
 
           {/* Contextual Action Buttons */}
           {!isUser && !isStreaming && displayContent && onContextualAction && (
-            <div className="pt-3 flex flex-wrap items-center gap-1.5 text-xs border-t border-white/[0.06]">
+            <div className="pt-2 flex flex-wrap items-center justify-end gap-1.5 text-xs animate-fade-in-up">
               {CONTEXTUAL_ACTIONS.map((btn) => {
                 const Icon = btn.icon;
                 return (
@@ -745,12 +748,9 @@ export default function ChatBubble({
                     type="button"
                     disabled={disabledActions}
                     onClick={() => onContextualAction(btn.id, message)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition disabled:opacity-30"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#94A3B8' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor='rgba(79,140,255,0.35)'; e.currentTarget.style.color='#F1F5FC'; e.currentTarget.style.background='rgba(79,140,255,0.08)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor='rgba(255,255,255,0.08)'; e.currentTarget.style.color='#94A3B8'; e.currentTarget.style.background='rgba(255,255,255,0.03)'; }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#141414] border border-[#262626] text-[#9A9A9A] hover:text-white hover:border-[#3A3A3A] hover:bg-[#1A1A1A] transition disabled:opacity-30"
                   >
-                    <Icon className="w-3 h-3 text-[#4F8CFF]" />
+                    <Icon className="w-3 h-3 text-[#9A9A9A]" />
                     <span>{btn.label}</span>
                   </button>
                 );
@@ -760,10 +760,10 @@ export default function ChatBubble({
 
           {/* Citations with Clickable Page Jump & Relevant Source Passage Drawer */}
           {!isUser && uniqueSources.length > 0 && (
-            <div className="pt-2.5 mt-2 border-t border-white/[0.06] space-y-2 text-xs">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-[#94A3B8] font-medium mr-0.5 flex items-center gap-1">
-                  <FileText className="w-3 h-3 text-[#4F8CFF]" />
+            <div className="pt-2 mt-1 border-t border-[#222222] space-y-2 text-xs animate-fade-in-up">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <span className="text-[11px] text-[#9A9A9A] font-medium mr-0.5 flex items-center gap-1">
+                  <FileText className="w-3 h-3 text-white" />
                   Sources:
                 </span>
                 {uniqueSources.map((src, idx) => {
@@ -773,34 +773,31 @@ export default function ChatBubble({
                       ? `${Math.round(src.relevance_score * 100)}%`
                       : null;
                   return (
-                    <div key={idx} className="inline-flex items-center rounded-xl overflow-hidden transition"
-                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div key={idx} className="inline-flex items-center rounded-lg overflow-hidden bg-[#141414] border border-[#262626] transition">
                       <button
                         type="button"
                         onClick={() => setExpandedSourceIdx(isExpanded ? null : idx)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-[#94A3B8] hover:text-[#F1F5FC] transition"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] text-[#9A9A9A] hover:text-white transition"
                         title="Preview retrieved source passage"
                       >
                         <span className="truncate max-w-[140px] font-medium">{src.filename}</span>
-                        <span className="text-[10px] font-mono px-1.5 rounded text-[#4F8CFF]"
-                          style={{ background: 'rgba(79,140,255,0.1)' }}>
+                        <span className="text-[10px] font-mono px-1.5 rounded bg-[#1F1F1F] text-white">
                           p.{src.page}
                         </span>
                         {scorePct && (
-                          <span className="text-[10px] font-mono text-[#8B7CFF]">{scorePct}</span>
+                          <span className="text-[10px] font-mono text-[#666666]">{scorePct}</span>
                         )}
                         {isExpanded ? (
-                          <ChevronUp className="w-3 h-3 text-[#94A3B8]" />
+                          <ChevronUp className="w-3 h-3 text-[#9A9A9A]" />
                         ) : (
-                          <ChevronDown className="w-3 h-3 text-[#94A3B8]" />
+                          <ChevronDown className="w-3 h-3 text-[#9A9A9A]" />
                         )}
                       </button>
                       {onNavigateToDoc && src.document_id && (
                         <button
                           type="button"
                           onClick={() => onNavigateToDoc(src.document_id, src.page)}
-                          className="px-2 py-1 border-l text-[#94A3B8] hover:text-[#4F8CFF] transition"
-                          style={{ borderColor: 'rgba(255,255,255,0.08)' }}
+                          className="px-2 py-1 border-l border-[#262626] text-[#9A9A9A] hover:text-white transition"
                           title={`Open ${src.filename} (Page ${src.page}) in Viewer`}
                         >
                           <ExternalLink className="w-3 h-3" />
@@ -812,23 +809,22 @@ export default function ChatBubble({
               </div>
 
               {expandedSourceIdx !== null && uniqueSources[expandedSourceIdx] && (
-                <div className="p-3 rounded-xl space-y-1.5"
-                  style={{ background: 'rgba(17,28,46,0.75)', border: '1px solid rgba(79,140,255,0.22)' }}>
+                <div className="p-3 rounded-xl space-y-1.5 bg-[#141414] border border-[#262626]">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-[#F1F5FC]">
+                    <span className="font-semibold text-white">
                       {uniqueSources[expandedSourceIdx].filename} — Page {uniqueSources[expandedSourceIdx].page}
                     </span>
                     {onNavigateToDoc && uniqueSources[expandedSourceIdx].document_id && (
                       <button
                         type="button"
                         onClick={() => onNavigateToDoc(uniqueSources[expandedSourceIdx].document_id, uniqueSources[expandedSourceIdx].page)}
-                        className="inline-flex items-center gap-1 text-[#4F8CFF] hover:underline font-medium"
+                        className="inline-flex items-center gap-1 text-white hover:underline font-medium"
                       >
                         Open in Viewer <ExternalLink className="w-3 h-3" />
                       </button>
                     )}
                   </div>
-                  <p className="text-[#94A3B8] leading-relaxed italic whitespace-pre-wrap text-xs">
+                  <p className="text-[#9A9A9A] leading-relaxed italic whitespace-pre-wrap text-xs">
                     "{uniqueSources[expandedSourceIdx].text}"
                   </p>
                 </div>
@@ -838,9 +834,9 @@ export default function ChatBubble({
 
           {/* Live Web Search Citations */}
           {!isUser && Array.isArray(message.web_sources) && message.web_sources.length > 0 && (
-            <div className="pt-2.5 mt-2 border-t border-white/[0.06] flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-[11px] text-[#94A3B8] font-medium mr-0.5 flex items-center gap-1">
-                <Globe className="w-3 h-3 text-[#38BDF8]" />
+            <div className="pt-2 mt-1 border-t border-[#222222] flex flex-wrap items-center justify-end gap-1.5 text-xs animate-fade-in-up">
+              <span className="text-[11px] text-[#9A9A9A] font-medium mr-0.5 flex items-center gap-1">
+                <Globe className="w-3 h-3 text-white" />
                 Web:
               </span>
               {message.web_sources.map((ws, idx) => (
@@ -849,12 +845,11 @@ export default function ChatBubble({
                   href={ws.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] text-[#BAE6FD] hover:text-white transition"
-                  style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.22)' }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] bg-[#141414] border border-[#262626] text-[#E5E5E5] hover:text-white hover:border-[#3A3A3A] transition"
                   title={ws.snippet || ws.url}
                 >
                   <span className="truncate max-w-[170px] font-medium">{ws.title}</span>
-                  <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                  <ExternalLink className="w-2.5 h-2.5 shrink-0 text-[#9A9A9A]" />
                 </a>
               ))}
             </div>
@@ -862,15 +857,14 @@ export default function ChatBubble({
 
           {/* Clickable Follow-up Suggestions (on latest assistant message) */}
           {!isUser && !isStreaming && isLastMessage && Array.isArray(message.follow_up_suggestions) && message.follow_up_suggestions.length > 0 && onFollowUpClick && (
-            <div className="pt-2 flex flex-wrap items-center gap-1.5">
+            <div className="pt-1.5 flex flex-wrap items-center justify-end gap-1.5 animate-fade-in-up">
               {message.follow_up_suggestions.map((sug, idx) => (
                 <button
                   key={idx}
                   type="button"
                   disabled={disabledActions}
                   onClick={() => onFollowUpClick(sug)}
-                  className="px-3 py-1 rounded-full text-[11px] font-medium text-[#93C5FD] hover:text-white transition disabled:opacity-35"
-                  style={{ background: 'rgba(79,140,255,0.08)', border: '1px solid rgba(79,140,255,0.22)' }}
+                  className="px-3 py-1 rounded-full text-[11px] font-medium bg-[#141414] border border-[#262626] text-[#9A9A9A] hover:text-white hover:border-[#3A3A3A] hover:bg-[#1A1A1A] transition disabled:opacity-35"
                 >
                   {sug} →
                 </button>
