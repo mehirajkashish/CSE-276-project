@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { authApi, getApiBaseUrl, setApiBaseUrl } from '../services/api';
+import { authApi, ensureBackendConnected, getApiBaseUrl, setApiBaseUrl } from '../services/api';
 import {
   GraduationCap,
   Sparkles,
@@ -70,6 +70,30 @@ export default function Login() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showBackendConfig, setShowBackendConfig] = useState(false);
   const [backendUrlInput, setBackendUrlInput] = useState(() => getApiBaseUrl());
+  const [backendStatus, setBackendStatus] = useState('connecting');
+
+  useEffect(() => {
+    let active = true;
+    const autoConnectBackend = async () => {
+      setBackendStatus('connecting');
+      const result = await ensureBackendConnected();
+      if (!active) return;
+      setBackendUrlInput(result.url);
+      if (result.connected) {
+        setBackendStatus('connected');
+        setShowBackendConfig(false);
+        setErrorMessage((prev) =>
+          prev && prev.includes('Cannot connect to backend server') ? '' : prev
+        );
+      } else {
+        setBackendStatus('offline');
+      }
+    };
+    autoConnectBackend();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const { login, register, enterDemoMode } = useAuth();
   const from = location.state?.from?.pathname || '/dashboard';
@@ -96,7 +120,7 @@ export default function Login() {
     return err.message || `${actionLabel} failed. Please try again.`;
   };
 
-  const handleSaveBackendUrl = () => {
+  const handleSaveBackendUrl = async () => {
     let cleaned = backendUrlInput.trim().replace(/\/+$/, '');
     if (cleaned && !cleaned.endsWith('/api') && cleaned.startsWith('http')) {
       cleaned = `${cleaned}/api`;
@@ -104,15 +128,30 @@ export default function Login() {
     setApiBaseUrl(cleaned);
     setBackendUrlInput(getApiBaseUrl());
     setErrorMessage('');
-    setSuccessMessage(`Backend API URL updated to "${getApiBaseUrl()}". Try signing in now.`);
+    setBackendStatus('connecting');
+    const result = await ensureBackendConnected();
+    setBackendUrlInput(result.url);
+    if (result.connected) {
+      setBackendStatus('connected');
+      setShowBackendConfig(false);
+      setSuccessMessage(`Connected to backend "${result.url}". Try signing in now.`);
+    } else {
+      setBackendStatus('offline');
+      setSuccessMessage(`Backend API URL updated to "${getApiBaseUrl()}". Try signing in now.`);
+    }
   };
 
-  const handleResetBackendUrl = () => {
+  const handleResetBackendUrl = async () => {
     setApiBaseUrl('');
-    const fallbackUrl = getApiBaseUrl();
-    setBackendUrlInput(fallbackUrl);
+    setBackendStatus('connecting');
+    const result = await ensureBackendConnected();
+    setBackendUrlInput(result.url);
     setErrorMessage('');
-    setSuccessMessage(`Backend API URL reset to default ("${fallbackUrl}"). Try signing in now.`);
+    setBackendStatus(result.connected ? 'connected' : 'offline');
+    if (result.connected) {
+      setShowBackendConfig(false);
+    }
+    setSuccessMessage(`Backend API URL reset to default ("${result.url}"). Try signing in now.`);
   };
 
   // Password strength calculation
@@ -148,6 +187,35 @@ export default function Login() {
     setSuccessMessage('Sample credentials filled! Click "Sign In" below.');
   };
 
+  const runAuthWithAutoConnect = async (actionFn) => {
+    try {
+      return await actionFn();
+    } catch (err) {
+      const status = err.response?.status;
+      const isConnErr =
+        !err.response ||
+        err.code === 'ERR_NETWORK' ||
+        err.code === 'ECONNABORTED' ||
+        status === 404 ||
+        status === 405 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
+      if (isConnErr) {
+        setBackendStatus('connecting');
+        const check = await ensureBackendConnected();
+        setBackendUrlInput(check.url);
+        if (check.connected) {
+          setBackendStatus('connected');
+          setShowBackendConfig(false);
+          return await actionFn();
+        }
+        setBackendStatus('offline');
+      }
+      throw err;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -173,7 +241,9 @@ export default function Login() {
 
       setIsLoading(true);
       try {
-        await register(fullName.trim(), email.trim(), password, confirmPassword);
+        await runAuthWithAutoConnect(() =>
+          register(fullName.trim(), email.trim(), password, confirmPassword)
+        );
         setSuccessMessage('Account created! Redirecting to workspace...');
         setTimeout(() => {
           navigate(from, { replace: true });
@@ -191,7 +261,7 @@ export default function Login() {
 
       setIsLoading(true);
       try {
-        await login(email.trim(), password, rememberMe);
+        await runAuthWithAutoConnect(() => login(email.trim(), password, rememberMe));
         navigate(from, { replace: true });
       } catch (err) {
         setErrorMessage(formatAuthConnectionError(err, 'sign in'));
@@ -352,6 +422,27 @@ export default function Login() {
                 ? 'Join university scholars studying smarter with RAG.'
                 : 'Enter your registered email to receive a recovery code.'}
             </p>
+            <div className="flex items-center justify-center pt-2">
+              <span
+                title={backendUrlInput}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141414] border border-[#262626] text-[11px] font-medium text-[#9A9A9A]"
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    backendStatus === 'connected'
+                      ? 'bg-emerald-400'
+                      : backendStatus === 'connecting'
+                      ? 'bg-amber-400 animate-pulse'
+                      : 'bg-rose-400'
+                  }`}
+                />
+                {backendStatus === 'connected'
+                  ? 'Backend Auto-Connected'
+                  : backendStatus === 'connecting'
+                  ? 'Connecting to Backend...'
+                  : 'Backend Unreachable'}
+              </span>
+            </div>
           </div>
         </div>
 

@@ -27,6 +27,20 @@ const RETIRED_API_HOSTS = new Set([
   'studymind-backend-96yl.onrender.com',
 ]);
 
+function isLocalFrontendHost(host) {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+function isStaticFrontendHost(host) {
+  return (
+    host.endsWith('.github.io') ||
+    host.endsWith('.vercel.app') ||
+    host.endsWith('.netlify.app') ||
+    host.endsWith('.pages.dev') ||
+    host.endsWith('.onrender.com')
+  );
+}
+
 function isRetiredApiUrl(url) {
   if (!url) return false;
   try {
@@ -43,7 +57,7 @@ export function getDefaultApiUrl() {
   }
   if (typeof window !== 'undefined') {
     const host = window.location.hostname.toLowerCase();
-    if (host.endsWith('.github.io') || host.endsWith('.vercel.app')) {
+    if (isStaticFrontendHost(host)) {
       return HOSTED_BACKEND_URL;
     }
   }
@@ -74,6 +88,79 @@ export function setApiBaseUrl(url) {
     localStorage.removeItem('studymind_api_url');
   }
   api.defaults.baseURL = getApiBaseUrl();
+}
+
+export async function probeBackendHealth(baseUrl, timeoutMs = 45000) {
+  const cleaned = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return { ok: false, retryable: false };
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(`${cleaned}/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller?.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const suspended = /service suspended/i.test(text);
+      const retryable = !suspended && (res.status === 502 || res.status === 503 || res.status === 504);
+      return { ok: false, status: res.status, retryable };
+    }
+    const data = JSON.parse(text);
+    return { ok: data?.status === 'healthy', status: res.status, retryable: false };
+  } catch {
+    return { ok: false, retryable: true };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+let inflightBackendConnect = null;
+
+export async function ensureBackendConnected() {
+  if (inflightBackendConnect) return inflightBackendConnect;
+
+  inflightBackendConnect = (async () => {
+    const current = getApiBaseUrl();
+    const first = await probeBackendHealth(current, 50000);
+    if (first.ok) {
+      return { connected: true, url: current, switched: false };
+    }
+
+    if (current === HOSTED_BACKEND_URL && first.retryable) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const retry = await probeBackendHealth(current, 50000);
+      if (retry.ok) {
+        return { connected: true, url: current, switched: false };
+      }
+    }
+
+    const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    const hasCustomSaved =
+      typeof window !== 'undefined' && Boolean(localStorage.getItem('studymind_api_url')?.trim());
+    const canFallbackToHosted =
+      current !== HOSTED_BACKEND_URL && (hasCustomSaved || !isLocalFrontendHost(host));
+
+    if (canFallbackToHosted) {
+      const fallback = await probeBackendHealth(HOSTED_BACKEND_URL, 55000);
+      if (fallback.ok) {
+        setApiBaseUrl('');
+        if (getApiBaseUrl() !== HOSTED_BACKEND_URL) {
+          setApiBaseUrl(HOSTED_BACKEND_URL);
+        }
+        return { connected: true, url: getApiBaseUrl(), switched: true };
+      }
+    }
+
+    return { connected: false, url: current, switched: false };
+  })();
+
+  try {
+    return await inflightBackendConnect;
+  } finally {
+    inflightBackendConnect = null;
+  }
 }
 
 const api = axios.create({

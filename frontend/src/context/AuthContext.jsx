@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi } from '../services/api';
+import { authApi, ensureBackendConnected } from '../services/api';
 import { DEMO_USER } from '../services/demoData';
 
 const AuthContext = createContext(null);
@@ -52,6 +52,22 @@ export function AuthProvider({ children }) {
             sessionStorage.setItem('studymind_user', JSON.stringify(userData));
           }
         } catch (err) {
+          const status = err.response?.status;
+          const isConnErr =
+            !err.response || err.code === 'ERR_NETWORK' || status === 404 || status === 502 || status === 503;
+          if (isConnErr) {
+            const check = await ensureBackendConnected();
+            if (check.connected) {
+              try {
+                const retryUser = await authApi.getMe();
+                setUser(retryUser);
+                setLoading(false);
+                return;
+              } catch {
+                // fall through to clear invalid session
+              }
+            }
+          }
           console.warn('Session verification failed, clearing auth:', err);
           logout();
         }
