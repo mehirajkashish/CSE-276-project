@@ -138,6 +138,29 @@ class VectorStore:
         self._save()
         return removed_count
 
+    def safe_reindex_missing(self) -> int:
+        """
+        Safe non-destructive migration helper: preserves existing FAISS index/vectors
+        and only re-embeds or rebuilds FAISS index when chunks & vectors are out of sync.
+        """
+        if len(self.chunks) == 0:
+            return 0
+        if self.vectors.shape[0] == len(self.chunks) and self.vectors.shape[1] == self.dimension:
+            if HAS_FAISS and (self.faiss_index is None or self.faiss_index.ntotal != len(self.chunks)):
+                self.faiss_index = faiss.IndexFlatIP(self.dimension)
+                self.faiss_index.add(self.vectors.astype(np.float32))
+                self._save()
+            return 0
+
+        from app.rag.embeddings import embedding_service
+        texts = [c.text for c in self.chunks]
+        self.vectors = embedding_service.embed_texts(texts).astype(np.float32)
+        if HAS_FAISS:
+            self.faiss_index = faiss.IndexFlatIP(self.dimension)
+            self.faiss_index.add(self.vectors)
+        self._save()
+        return len(self.chunks)
+
     def search(
         self,
         query_vector: np.ndarray,
@@ -145,12 +168,13 @@ class VectorStore:
         top_k: int = 4,
         user_id: Optional[str] = None,
         document_ids: Optional[List[str]] = None,
-        score_threshold: float = 0.05
+        score_threshold: float = 0.05,
+        enable_rerank: bool = True,
     ) -> List[Tuple[DocumentChunk, float]]:
         """
-        Retrieves top_k most similar document chunks using Hybrid Retrieval:
-        Dense Cosine Similarity + BM25/Lexical Keyword Relevance.
-        Enforces user isolation and document filtering.
+        Retrieves top_k most relevant document chunks using Hybrid Retrieval:
+        Dense Cosine Similarity + IDF-weighted Lexical Relevance + Bigram/Heading Reranking + Multi-Source Diversity.
+        Strictly isolates chunks to the requesting user/document filter without destroying existing indexes.
         """
         if len(self.chunks) == 0 or self.vectors.shape[0] == 0:
             return []
@@ -187,42 +211,84 @@ class VectorStore:
         dense_sims = np.dot(cand_vectors, query_vector.T).flatten()
 
         query_words = []
+        query_bigrams = []
         if query_text:
             query_words = [
                 w.lower() for w in re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', query_text)
                 if w.lower() not in STOP_WORDS
             ]
+            if len(query_words) >= 2:
+                query_bigrams = [f"{query_words[i]} {query_words[i+1]}" for i in range(len(query_words) - 1)]
+
+        # Precompute simple inverse-document frequency weights across candidate chunks
+        term_idf: Dict[str, float] = {}
+        num_cands = max(1, len(candidate_indices))
+        if query_words:
+            for qw in set(query_words):
+                df = sum(1 for orig_idx in candidate_indices if qw in self.chunks[orig_idx].text.lower())
+                term_idf[qw] = 1.0 + float(np.log((num_cands + 1.0) / (df + 1.0)))
 
         scored_candidates = []
         clean_q = query_text.strip().lower() if query_text else ""
 
         for k, orig_idx in enumerate(candidate_indices):
             chunk = self.chunks[orig_idx]
-            d_sim = float(dense_sims[k])
+            d_sim = max(0.0, float(dense_sims[k]))
 
             if query_words:
                 text_lower = chunk.text.lower()
-                matched = sum(1 for w in query_words if w in text_lower)
-                kw_coverage = matched / len(query_words)
-                phrase_bonus = 0.35 if (clean_q and clean_q in text_lower) else 0.0
-                kw_score = (0.65 * kw_coverage) + phrase_bonus
-                final_score = (0.40 * d_sim) + (0.60 * kw_score)
+                heading_lower = str(chunk.metadata.get("section_heading", "")).lower()
+                total_weight = sum(term_idf.get(w, 1.0) for w in query_words) or 1.0
+                matched_weight = sum(term_idf.get(w, 1.0) for w in query_words if w in text_lower)
+                kw_coverage = matched_weight / total_weight
+                phrase_bonus = 0.25 if (clean_q and clean_q in text_lower) else 0.0
+                bigram_hits = sum(1 for bg in query_bigrams if bg in text_lower)
+                bigram_bonus = 0.15 * (bigram_hits / len(query_bigrams)) if query_bigrams else 0.0
+                heading_bonus = 0.10 if any(w in heading_lower for w in query_words) else 0.0
+
+                # Filter obvious non-matches: if zero keywords match and dense score is noise, do not fabricate relevance
+                if matched_weight == 0 and d_sim < 0.25:
+                    continue
+
+                kw_score = min(1.0, (0.65 * kw_coverage) + phrase_bonus + bigram_bonus + heading_bonus)
+                final_score = (0.42 * d_sim) + (0.58 * kw_score)
             else:
                 final_score = d_sim
 
-            scored_candidates.append((chunk, final_score))
+            if final_score >= score_threshold:
+                scored_candidates.append((chunk, min(1.0, final_score), orig_idx))
 
         scored_candidates.sort(key=lambda x: -x[1])
 
-        results = []
-        for chunk, score in scored_candidates:
-            if score < score_threshold:
-                continue
-            results.append((chunk, score))
-            if len(results) >= top_k:
-                break
+        if not enable_rerank or len(scored_candidates) <= 1:
+            return [(chunk, score) for chunk, score, _ in scored_candidates[:top_k]]
 
-        return results
+        # MMR-style diversity reranking over top candidate pool (supports multi-document coverage)
+        pool = scored_candidates[: max(top_k * 3, 10)]
+        selected: List[Tuple[DocumentChunk, float, int]] = []
+        multi_doc_mode = not document_ids or len(document_ids) > 1
+
+        remaining = list(pool)
+        while remaining and len(selected) < top_k:
+            best_item = None
+            best_mmr = -1e9
+            for chunk, base_score, orig_idx in remaining:
+                redundancy = 0.0
+                for sel_chunk, _, _ in selected:
+                    if sel_chunk.document_id == chunk.document_id and sel_chunk.page_number == chunk.page_number:
+                        redundancy = max(redundancy, 0.14)
+                    elif sel_chunk.document_id == chunk.document_id:
+                        redundancy = max(redundancy, 0.05 if multi_doc_mode else 0.02)
+                mmr_score = base_score - redundancy
+                if mmr_score > best_mmr:
+                    best_mmr = mmr_score
+                    best_item = (chunk, base_score, orig_idx)
+            if best_item is None:
+                break
+            selected.append(best_item)
+            remaining.remove(best_item)
+
+        return [(chunk, score) for chunk, score, _ in selected]
 
     def get_document_chunks(self, document_id: str, user_id: Optional[str] = None, filename: Optional[str] = None) -> List[DocumentChunk]:
         """Returns all chunks for a specific document in page and chunk order."""

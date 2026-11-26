@@ -271,3 +271,31 @@ html[data-theme="light"] .text-rose-400,
 html[data-theme="light"] .text-red-400 {
   color: #E11D48 !important;
 }
+
+/* Midnight Navy Chat Palette Light-Mode Compatibility */
+html[data-theme="light"] .bg-\[\#080D18\],
+html[data-theme="light"] .bg-\[\#0C1424\] {
+  background-color: #F8FAFC !important;
+}
+
+html[data-theme="light"] .bg-\[\#111C2E\],
+html[data-theme="light"] .bg-\[\#0D1628\] {
+  background-color: #FFFFFF !important;
+}
+
+html[data-theme="light"] .bg-\[\#16243B\] {
+  background-color: #EFF6FF !important;
+}
+
+html[data-theme="light"] .border-\[\#1E2E4A\],
+html[data-theme="light"] .border-\[\#1E2E4A\]\/70 {
+  border-color: #E2E8F0 !important;
+}
+
+html[data-theme="light"] .text-\[\#F1F5FC\] {
+  color: #0F172A !important;
+}
+
+html[data-theme="light"] .text-\[\#8A9BB8\] {
+  color: #475569 !important;
+}

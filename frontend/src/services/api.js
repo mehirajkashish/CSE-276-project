@@ -400,10 +400,17 @@ export const documentApi = {
 
 // --- Chat API ---
 export const chatApi = {
-  sendMessage: async ({ question, conversation_id = null, document_ids = [], top_k = 4 }) => {
+  sendMessage: async ({
+    question,
+    conversation_id = null,
+    document_ids = [],
+    top_k = 4,
+    mode = 'learn',
+    explanation_level = 'intermediate',
+    replace_from_message_id = null,
+  }) => {
     if (isDemo()) {
-      // Simulate brief network latency for realistic feel
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, 450));
 
       const demoAnswer = generateDemoChatResponse(question);
       const convId = conversation_id || `demo-conv-${Date.now()}`;
@@ -412,7 +419,7 @@ export const chatApi = {
       if (!conv) {
         conv = {
           id: convId,
-          title: question.slice(0, 40) + '...',
+          title: question.slice(0, 42) + (question.length > 42 ? '...' : ''),
           created_at: new Date().toISOString(),
           messages: [],
         };
@@ -438,9 +445,15 @@ export const chatApi = {
       return {
         answer: demoAnswer.answer,
         conversation_id: convId,
+        message_id: assistantMsg.id,
+        user_message_id: userMsg.id,
+        title: conv.title,
         grounded: demoAnswer.grounded,
+        not_found_in_docs: false,
+        mode,
+        explanation_level,
         sources: demoAnswer.sources,
-        model_used: 'gemini-1.5-flash (Demo Mode)',
+        model_used: 'gemini-flash-lite-latest (Demo Mode)',
       };
     }
 
@@ -449,6 +462,222 @@ export const chatApi = {
       conversation_id,
       document_ids,
       top_k,
+      mode,
+      explanation_level,
+      replace_from_message_id,
+    });
+    return response.data;
+  },
+
+  streamMessage: async ({
+    question,
+    conversation_id = null,
+    document_ids = [],
+    top_k = 4,
+    mode = 'learn',
+    explanation_level = 'intermediate',
+    replace_from_message_id = null,
+    signal,
+    onMeta,
+    onChunk,
+    onDone,
+  }) => {
+    if (isDemo()) {
+      const demoRes = await chatApi.sendMessage({
+        question,
+        conversation_id,
+        document_ids,
+        top_k,
+        mode,
+        explanation_level,
+        replace_from_message_id,
+      });
+      if (onMeta) {
+        onMeta({
+          conversation_id: demoRes.conversation_id,
+          message_id: demoRes.message_id,
+          user_message_id: demoRes.user_message_id,
+          title: demoRes.title,
+          sources: demoRes.sources,
+          grounded: demoRes.grounded,
+          not_found_in_docs: false,
+          mode,
+          explanation_level,
+        });
+      }
+      const tokens = (demoRes.answer || '').match(/\S+\s*/g) || [demoRes.answer || ''];
+      let built = '';
+      for (let i = 0; i < tokens.length; i += 3) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        const piece = tokens.slice(i, i + 3).join('');
+        built += piece;
+        if (onChunk) onChunk(piece, built);
+        await new Promise((r) => setTimeout(r, 18));
+      }
+      if (onDone) onDone({ ...demoRes, answer: built });
+      return { ...demoRes, answer: built };
+    }
+
+    const token = localStorage.getItem('studymind_token') || sessionStorage.getItem('studymind_token');
+    const timeoutController = new AbortController();
+    let timer = setTimeout(() => timeoutController.abort('timeout'), 95000);
+    const resetIdleTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => timeoutController.abort('timeout'), 60000);
+    };
+
+    const onCallerAbort = () => timeoutController.abort('user_stop');
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    try {
+      const resp = await fetch(`${getApiBaseUrl()}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          question,
+          conversation_id,
+          document_ids,
+          top_k,
+          mode,
+          explanation_level,
+          replace_from_message_id,
+        }),
+        signal: timeoutController.signal,
+      });
+
+      if (resp.status === 401) {
+        localStorage.removeItem('studymind_token');
+        sessionStorage.removeItem('studymind_token');
+        localStorage.removeItem('studymind_user');
+        window.location.href = `${getBasePath()}/login`;
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      if (!resp.ok) {
+        let errDetail = `Streaming request failed (HTTP ${resp.status})`;
+        try {
+          const errJson = await resp.json();
+          if (errJson?.detail) errDetail = errJson.detail;
+        } catch {
+          // ignore non-json error body
+        }
+        throw new Error(errDetail);
+      }
+
+      if (!resp.body) {
+        throw new Error('Streaming is not supported in this browser environment.');
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let metaPayload = {};
+      let accumulatedAnswer = '';
+      let donePayload = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        resetIdleTimer();
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
+
+        let splitIdx;
+        while ((splitIdx = buffer.indexOf('\n\n')) !== -1) {
+          const rawBlock = buffer.slice(0, splitIdx);
+          buffer = buffer.slice(splitIdx + 2);
+          if (!rawBlock.trim()) continue;
+
+          let eventName = 'message';
+          const dataLines = [];
+          for (const line of rawBlock.split('\n')) {
+            if (line.startsWith('event:')) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+          if (dataLines.length === 0) continue;
+
+          let parsed;
+          try {
+            parsed = JSON.parse(dataLines.join('\n'));
+          } catch {
+            continue;
+          }
+
+          if (eventName === 'meta') {
+            metaPayload = parsed;
+            if (onMeta) onMeta(parsed);
+          } else if (eventName === 'chunk') {
+            const txt = parsed.text || '';
+            if (txt) {
+              accumulatedAnswer += txt;
+              if (onChunk) onChunk(txt, accumulatedAnswer);
+            }
+          } else if (eventName === 'error') {
+            throw new Error(parsed.detail || 'Streaming interrupted by server.');
+          } else if (eventName === 'done') {
+            donePayload = parsed;
+            if (onDone) onDone(parsed);
+          }
+        }
+      }
+
+      return {
+        ...metaPayload,
+        ...(donePayload || {}),
+        answer: (donePayload && donePayload.answer) || accumulatedAnswer,
+      };
+    } catch (err) {
+      if (timeoutController.signal.reason === 'timeout') {
+        throw new Error('Response timed out while waiting for the AI model. Please try again.');
+      }
+      if (signal?.aborted || err.name === 'AbortError') {
+        const abortErr = new Error('Generation stopped by user.');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
+    }
+  },
+
+  runContextualAction: async ({
+    action_type,
+    conversation_id = null,
+    message_id = null,
+    document_ids = [],
+    explanation_level = 'intermediate',
+    mode = 'learn',
+  }) => {
+    if (isDemo()) {
+      return chatApi.sendMessage({
+        question: `Run study action: ${action_type}`,
+        conversation_id,
+        document_ids,
+        mode,
+        explanation_level,
+      });
+    }
+    const response = await api.post('/chat/action', {
+      action_type,
+      conversation_id,
+      message_id,
+      document_ids,
+      explanation_level,
+      mode,
     });
     return response.data;
   },
@@ -475,6 +704,24 @@ export const chatApi = {
       };
     }
     const response = await api.get(`/chat/${conversationId}`);
+    return response.data;
+  },
+
+  renameConversation: async (conversationId, title) => {
+    if (isDemo()) {
+      const conv = dynamicDemoConvs.find((c) => c.id === conversationId);
+      if (conv) conv.title = title;
+      return { id: conversationId, title };
+    }
+    const response = await api.patch(`/chat/${conversationId}`, { title });
+    return response.data;
+  },
+
+  setMessageFeedback: async (messageId, feedback) => {
+    if (isDemo()) {
+      return { success: true, message_id: messageId, feedback };
+    }
+    const response = await api.post(`/chat/messages/${messageId}/feedback`, { feedback });
     return response.data;
   },
 

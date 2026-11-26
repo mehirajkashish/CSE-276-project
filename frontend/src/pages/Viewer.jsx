@@ -26,6 +26,9 @@ export default function Viewer() {
   const [currentPage, setCurrentPage] = useState(targetPage || 1);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState('');
 
   useEffect(() => {
     loadDocuments();
@@ -80,6 +83,54 @@ export default function Viewer() {
 
   const doc = docDetails?.document;
   const chunks = docDetails?.chunks || [];
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    const pdfUrl = getPdfUrl(doc);
+
+    if (!doc || !pdfUrl) {
+      setPdfBlobUrl('');
+      setPdfError('');
+      return undefined;
+    }
+
+    const fetchPdfBlob = async () => {
+      setPdfLoading(true);
+      setPdfError('');
+      setPdfBlobUrl('');
+      try {
+        const res = await fetch(pdfUrl, { mode: 'cors' });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const typedBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        objectUrl = URL.createObjectURL(typedBlob);
+        if (active) {
+          setPdfBlobUrl(objectUrl);
+        } else {
+          URL.revokeObjectURL(objectUrl);
+        }
+      } catch (err) {
+        if (active) {
+          setPdfError(
+            err.message?.includes('404')
+              ? 'PDF binary is no longer on temporary server storage, though extracted vector chunks remain available on the right.'
+              : 'Could not load inline PDF preview. Try "Raw PDF" above or inspect the extracted vector chunks on the right.'
+          );
+        }
+      } finally {
+        if (active) setPdfLoading(false);
+      }
+    };
+
+    fetchPdfBlob();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [doc?.id]);
 
   const pageChunks = chunks.filter((c) => c.page_number === currentPage);
   const totalPages = doc?.total_pages || doc?.page_count || 1;
@@ -179,14 +230,37 @@ export default function Viewer() {
 
           {/* PDF Viewer Frame */}
           <div className="flex-1 bg-[#0D0D0D] p-2 overflow-hidden flex flex-col min-h-0">
-            {doc ? (
+            {!doc ? (
+              <div className="m-auto text-xs text-[#9A9A9A]">No document selected.</div>
+            ) : pdfLoading ? (
+              <div className="m-auto text-xs text-[#9A9A9A]">Loading PDF preview...</div>
+            ) : pdfError ? (
+              <div className="m-auto max-w-sm text-center space-y-3 p-4">
+                <Info className="w-6 h-6 mx-auto text-[#666666]" />
+                <p className="text-xs text-[#9A9A9A] leading-relaxed">{pdfError}</p>
+                <a
+                  href={getPdfUrl(doc)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
+                >
+                  <span>Open Raw PDF</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            ) : pdfBlobUrl ? (
+              <iframe
+                key={`${doc.id}-${currentPage}`}
+                src={`${pdfBlobUrl}#page=${currentPage}`}
+                title="PDF Document Viewer"
+                className="w-full h-full rounded-xl border-0 bg-white"
+              />
+            ) : (
               <iframe
                 src={`${getPdfUrl(doc)}#page=${currentPage}`}
                 title="PDF Document Viewer"
                 className="w-full h-full rounded-xl border-0 bg-white"
               />
-            ) : (
-              <div className="m-auto text-xs text-[#9A9A9A]">No document selected.</div>
             )}
           </div>
         </div>

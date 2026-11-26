@@ -1,18 +1,78 @@
 import os
 import json
 import re
-from typing import List, Dict, Any, Optional
+import time
+from typing import List, Dict, Any, Optional, Generator, Tuple
 import requests
 from app.core.config import settings
 from app.models.schemas import SourceCitation
 
 SYSTEM_INSTRUCTION = (
-    "You are StudyMind AI, a warm, brilliant, empathetic, and encouraging academic tutor and mentor. "
-    "Your mission is to help students genuinely grasp the intuition behind their course materials and study with confidence. "
-    "Speak naturally, clearly, and supportively—like an inspiring tutor sitting right beside the student. "
-    "Use intuitive analogies, step-by-step reasoning, clean bullet points, and LaTeX equations where appropriate. "
-    "Base your answers strictly on the provided context. If a detail is missing from their notes, kindly explain what is known and offer guidance. "
-    "Never sound robotic, cold, or repetitive. Keep explanations crisp, human, and directly useful for excelling in exams."
+    "You are StudyMind AI, an expert personal academic study tutor, researcher, and mentor. "
+    "Help students genuinely grasp intuition, derivations, code, and exam structure with clarity and warmth. "
+    "Format responses using crisp Markdown: structured headings, numbered steps, comparison tables where helpful, "
+    "syntax-highlighted fenced code blocks, LaTeX math ($...$ and $$...$$), and callouts (`> **Note:** ...` or `> **Warning:** ...`). "
+    "NEVER fabricate document filenames, page numbers, or quotes. Only cite sources actually provided in STUDY MATERIALS CONTEXT."
+)
+
+LEVEL_INSTRUCTIONS = {
+    "beginner": (
+        "EXPLANATION LEVEL — BEGINNER:\n"
+        "- Use simple, clear English and everyday analogies before introducing technical terms.\n"
+        "- Break every explanation into small, easy-to-follow steps with basic concrete examples.\n"
+        "- Define any unavoidable technical term immediately in plain words."
+    ),
+    "intermediate": (
+        "EXPLANATION LEVEL — INTERMEDIATE:\n"
+        "- Provide detailed university-level academic explanations combining clear intuition with formal concepts.\n"
+        "- Include key equations, definitions, structured points, and practical examples."
+    ),
+    "advanced": (
+        "EXPLANATION LEVEL — ADVANCED:\n"
+        "- Deliver rigorous, technical depth suitable for upper-division/graduate engineering or research.\n"
+        "- Include formal notation, derivations, architectural trade-offs, edge cases, and asymptotic complexity where relevant."
+    ),
+}
+
+MODE_INSTRUCTIONS = {
+    "learn": (
+        "SMART MODE — LEARN MODE:\n"
+        "- Act as a patient personal tutor. Teach the concept intuitively with clear reasoning, worked examples, "
+        "visual analogies, and end with 1 brief follow-up question to check understanding."
+    ),
+    "exam": (
+        "SMART MODE — EXAM MODE:\n"
+        "- Structure the response for top marks in university examinations using clear sections:\n"
+        "  1. **Concise Definition**\n"
+        "  2. **Key Points & Derivations / Core Mechanics**\n"
+        "  3. **High-Yield Exam Takeaways & Common Pitfalls**\n"
+        "  4. **Conclusion**"
+    ),
+    "practice": (
+        "SMART MODE — PRACTICE MODE:\n"
+        "- Act as an interactive coach. If the student attempted an answer in the prior conversation turn, first evaluate "
+        "their answer clearly (what is right, specific mistakes, and why), then show the step-by-step correction.\n"
+        "- Otherwise, pose 1–2 focused practice problems (or diagnostic questions) tailored to the topic with a collapsible-style "
+        "Hint section so the student can actively think before seeing full solutions."
+    ),
+    "code": (
+        "SMART MODE — CODE MODE:\n"
+        "- Focus on clean, working, well-commented code in fenced syntax-highlighted blocks (e.g., ```python, ```cpp, ```javascript).\n"
+        "- Walk through the logic step-by-step, highlight debugging pitfalls / edge cases (`> **Warning:** ...`), "
+        "and state Time and Space complexity."
+    ),
+    "research": (
+        "SMART MODE — RESEARCH MODE:\n"
+        "- Perform rigorous cross-document synthesis over the retrieved passages.\n"
+        "- Explicitly attribute factual claims inline using `[Filename, Page X]` where sources support them, compare or contrast "
+        "evidence across documents (using a Markdown table if multiple concepts/sources apply), and explicitly flag missing evidence."
+    ),
+}
+
+TITLE_STOP_PREFIXES = (
+    "can you please ", "could you please ", "please ", "can you ", "could you ",
+    "explain ", "tell me about ", "what is ", "what are ", "how does ", "how do ",
+    "why does ", "why is ", "give me ", "help me understand ", "help me with ",
 )
 
 GREETING_PATTERNS = [
@@ -67,186 +127,383 @@ class GeminiService:
         cleaned = re.sub(r"(?:\n-\s*)+", "\n- ", cleaned)
         return cleaned.strip()
 
-    def generate_general_academic_answer(self, question: str, user_name: Optional[str] = None) -> Dict[str, Any]:
+    def normalize_level(self, level: Optional[str]) -> str:
+        val = (level or "intermediate").strip().lower()
+        return val if val in LEVEL_INSTRUCTIONS else "intermediate"
+
+    def normalize_mode(self, mode: Optional[str]) -> str:
+        val = (mode or "learn").strip().lower()
+        aliases = {"standard": "learn", "eli5": "learn", "exam rubric": "exam"}
+        val = aliases.get(val, val)
+        return val if val in MODE_INSTRUCTIONS else "learn"
+
+    def build_system_instruction(
+        self,
+        level: Optional[str] = "intermediate",
+        mode: Optional[str] = "learn",
+        has_citations: bool = False,
+        strict_doc_missing: bool = False,
+    ) -> str:
+        lvl = self.normalize_level(level)
+        md = self.normalize_mode(mode)
+        parts = [SYSTEM_INSTRUCTION, LEVEL_INSTRUCTIONS[lvl], MODE_INSTRUCTIONS[md]]
+        if has_citations:
+            parts.append(
+                "GROUNDING RULE:\n"
+                "- Ground factual claims in the supplied STUDY MATERIALS CONTEXT.\n"
+                "- Cite supporting documents inline as [Filename, Page X] when helpful, and NEVER invent filenames, quotes, or page numbers."
+            )
+        elif strict_doc_missing:
+            parts.append(
+                "DOCUMENT COVERAGE RULE:\n"
+                "- No matching passages were found in the student's uploaded PDFs for this query.\n"
+                "- Begin with a clear callout stating that this topic was NOT found in their uploaded documents, then provide general academic guidance clearly separated as general knowledge."
+            )
+        return "\n\n".join(parts)
+
+    def generate_conversation_title(self, question: str) -> str:
+        clean = " ".join((question or "").strip().split())
+        if not clean:
+            return "Study Discussion"
+        lowered = clean.lower()
+        for prefix in TITLE_STOP_PREFIXES:
+            if lowered.startswith(prefix) and len(clean) > len(prefix) + 3:
+                clean = clean[len(prefix):].strip()
+                break
+        clean = re.sub(r"^[\"'`:\-\s]+|[?!.]+$", "", clean).strip()
+        words = clean.split()
+        if not words:
+            return "Study Discussion"
+        snippet = " ".join(words[:6])
+        if len(words) > 6:
+            snippet += "..."
+        return snippet[0].upper() + snippet[1:]
+
+    def _build_gemini_contents(
+        self,
+        prompt: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> List[Dict[str, Any]]:
+        contents: List[Dict[str, Any]] = []
+        if conversation_history:
+            for turn in conversation_history[-10:]:
+                role_raw = (turn.get("role") or "").strip().lower()
+                text = (turn.get("content") or turn.get("message") or "").strip()
+                if not text:
+                    continue
+                if len(text) > 1600:
+                    text = text[:1600] + "..."
+                gemini_role = "model" if role_raw == "assistant" else "user"
+                contents.append({"role": gemini_role, "parts": [{"text": text}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        return contents
+
+    def generate_general_academic_answer(
+        self,
+        question: str,
+        user_name: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        level: str = "intermediate",
+        mode: str = "learn",
+        strict_doc_missing: bool = False,
+        searched_docs: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
-        Answers student questions when no PDF is attached or when asking general academic queries.
-        Provides warm, intuitive explanations with analogies, bullet points, and LaTeX equations.
+        Answers student questions when no PDF matches or for general academic queries.
+        Adapts explanation depth, smart chat mode, and prior conversation history.
         """
         api_key = settings.gemini_api_key.strip()
         model_name = settings.gemini_model or self.default_model
+        sys_inst = self.build_system_instruction(
+            level=level,
+            mode=mode,
+            has_citations=False,
+            strict_doc_missing=strict_doc_missing,
+        )
+
+        scope_note = ""
+        if strict_doc_missing:
+            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
+            scope_note = (
+                f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
+                f"Start with a `> **Warning — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
+                f"then answer using accurate general academic knowledge.\n\n"
+            )
 
         user_prompt = (
+            f"{scope_note}"
             f"STUDENT'S QUESTION:\n{question}\n\n"
             f"INSTRUCTIONS:\n"
-            f"You are StudyMind AI, an encouraging and brilliant academic study tutor. "
-            f"The student asked this question without attaching a specific textbook or notes PDF. "
-            f"Provide a clear, engaging, intuitive explanation. "
-            f"Use structured paragraphs, bullet points, real-world analogies, and clean LaTeX math where relevant. "
-            f"Keep your tone warm, encouraging, and easy to understand. "
-            f"Conclude with a brief, friendly tip:\n"
-            f"> 💡 *Tip: You can attach your course lecture slides or textbook anytime to get answers grounded in your specific class notes with exact page citations!*"
+            f"Use the active explanation level and smart chat mode defined in your system instructions. "
+            f"Respect follow-up context from earlier turns in this conversation if present. "
+            f"Keep formatting readable with Markdown headings, lists/tables, LaTeX math, or syntax-highlighted code blocks where appropriate."
         )
 
         if api_key:
             try:
-                answer = self._call_gemini_api(api_key, model_name, user_prompt)
+                answer, used_model = self._call_gemini_api_with_meta(
+                    api_key,
+                    model_name,
+                    user_prompt,
+                    system_instruction=sys_inst,
+                    conversation_history=conversation_history,
+                )
                 return {
                     "answer": answer,
                     "grounded": False,
-                    "model_used": model_name
+                    "not_found_in_docs": strict_doc_missing,
+                    "model_used": used_model,
                 }
             except Exception as e:
                 print(f"[GeminiService] Gemini call failed for general query: {e}")
 
         # Local intelligent tutor fallback if API key is not configured or offline
-        local_ans = self._synthesize_general_academic_fallback(question)
+        local_ans = self._synthesize_general_academic_fallback(
+            question,
+            level=level,
+            mode=mode,
+            conversation_history=conversation_history,
+            strict_doc_missing=strict_doc_missing,
+            searched_docs=searched_docs,
+        )
         return {
             "answer": local_ans,
             "grounded": False,
-            "model_used": "local-academic-tutor"
+            "not_found_in_docs": strict_doc_missing,
+            "model_used": "local-academic-tutor",
         }
 
-    def _synthesize_general_academic_fallback(self, question: str) -> str:
+    def _synthesize_general_academic_fallback(
+        self,
+        question: str,
+        level: str = "intermediate",
+        mode: str = "learn",
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        strict_doc_missing: bool = False,
+        searched_docs: Optional[List[str]] = None,
+    ) -> str:
         q_clean = question.strip()
         q_lower = q_clean.lower()
+        lvl = self.normalize_level(level)
+        md = self.normalize_mode(mode)
+
+        notice = ""
+        if strict_doc_missing:
+            docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
+            notice = (
+                f"> **Warning — Not Found in Uploaded Documents:** I searched **{docs_desc}** and did not find passages directly answering this query. "
+                f"Here is general academic guidance instead:\n\n"
+            )
+
+        context_hint = ""
+        if conversation_history:
+            for turn in reversed(conversation_history):
+                if (turn.get("role") or "").lower() == "user" and len((turn.get("content") or "").strip()) > 3:
+                    prev_topic = (turn.get("content") or "").strip()[:90]
+                    context_hint = f"\n> **Note:** Building on our earlier discussion (*\"{prev_topic}\"*).\n"
+                    break
+
+        if md == "code" or any(w in q_lower for w in ["code", "python", "bug", "debug", "function", "algorithm", "complexity"]):
+            return notice + (
+                f"### Code & Algorithmic Walkthrough: **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"```python\ndef solve_problem(items):\n    \"\"\"Clean reference template ({lvl} level).\"\"\"\n    result = []\n    for idx, item in enumerate(items):\n        result.append((idx, item))\n    return result\n```\n\n"
+                f"| Aspect | Analysis |\n| --- | --- |\n| **Time Complexity** | $\\mathcal{{O}}(n)$ single pass |\n| **Space Complexity** | $\\mathcal{{O}}(n)$ output storage |\n\n"
+                f"> **Tip:** Attach your lab manual or paste the exact code snippet/error trace for line-by-line debugging."
+            )
+
+        if md == "exam":
+            return notice + (
+                f"### Exam Answer Blueprint ({lvl.title()} Level): **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"1. **Definition:** State the core formal definition clearly in 1–2 sentences.\n"
+                f"2. **Key Principles:** Explain the governing rules, variables, and mechanism step-by-step.\n"
+                f"3. **Worked Application:** Show a short example or formula substitution.\n"
+                f"4. **Conclusion:** Summarize why the concept matters and note common exam mistakes.\n\n"
+                f"> **Tip:** Attach your syllabus slides so every section cites exact textbook pages."
+            )
+
+        if md == "practice":
+            return notice + (
+                f"### Practice Coaching ({lvl.title()} Level): **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"Let's test your understanding step-by-step:\n\n"
+                f"1. **Check Question:** In your own words, what is the primary goal or formula behind this topic?\n"
+                f"2. **Applied Problem:** What happens when the key input parameter increases or hits a boundary case?\n\n"
+                f"> **Hint:** Reply with your attempt and I will evaluate your reasoning and point out any gaps."
+            )
 
         # Math / Equations / Algebra
         if any(w in q_lower for w in ["solve", "equation", "formula", "derivative", "integral", "matrix", "eigen", "calculus", "math"]):
-            return (
-                f"### 📐 Mathematical Breakdown: **{q_clean}**\n\n"
-                f"Here is how to solve and understand this concept step-by-step:\n\n"
-                f"1. **Identify the Core Principle:** State the known variables, definitions, and target values.\n"
-                f"2. **Standard Formulation:** Set up the governing algebraic or differential equations.\n"
-                f"3. **Analytical Solution:** Apply systematic substitution or transformation rules to isolate the solution.\n"
-                f"4. **Verification:** Test boundary conditions or substitute the root back into the original expression to confirm.\n\n"
-                f"> 💡 *Tip: Upload your course syllabus or lecture slides to get step-by-step derivations matching your professor's exact format and page citations!*"
+            return notice + (
+                f"### Mathematical Breakdown ({lvl.title()}): **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"1. **Identify Knowns & Goal:** List given variables, constraints, and target unknown.\n"
+                f"2. **Set Up Governing Relation:** Express the problem symbolically using standard definitions.\n"
+                f"3. **Step-by-Step Derivation:** Apply systematic algebraic or calculus transformations.\n"
+                f"4. **Verify Result:** Check boundary values and units.\n\n"
+                f"> **Tip:** Upload your course PDF anytime for derivations grounded in your exact class notes."
             )
 
         # AI / Machine Learning / Deep Learning
         if any(w in q_lower for w in ["machine learning", "deep learning", "neural", "attention", "transformer", "backpropagation", "gradient", "cnn", "rnn"]):
-            return (
-                f"### 🧠 Core Concept: **{q_clean}**\n\n"
-                f"In computer science and artificial intelligence, this is a foundational principle:\n\n"
-                f"- **Core Intuition:** Instead of hardcoding hand-written rules, neural models iteratively adjust parameter weights to minimize an objective error loss.\n"
-                f"- **Mathematical Basis:** Backpropagation applies the multi-variable chain rule $\\frac{{\\partial L}}{{\\partial w}} = \\frac{{\\partial L}}{{\\partial y}} \\cdot \\frac{{\\partial y}}{{\\partial w}}$ to propagate gradient updates backward.\n"
-                f"- **Optimization:** Modern architectures utilize layer normalization, residual connections, and adaptive learning rates (like AdamW) to maintain numerical stability.\n\n"
-                f"> 💡 *Tip: Attach your lecture slides or textbook anytime to see how this specific architecture is defined in your syllabus with exact page numbers!*"
+            return notice + (
+                f"### Core Concept ({lvl.title()}): **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"- **Core Intuition:** Models learn representations iteratively by adjusting weights to minimize an objective loss.\n"
+                f"- **Mathematical Basis:** Backpropagation applies the chain rule $\\frac{{\\partial L}}{{\\partial w}} = \\frac{{\\partial L}}{{\\partial y}} \\cdot \\frac{{\\partial y}}{{\\partial w}}$ across layers.\n"
+                f"- **Optimization:** Normalization and residual paths stabilize gradient flow during training.\n\n"
+                f"> **Tip:** Attach your lecture slides to inspect exact page-cited equations from your notes."
             )
 
         # Science / Physics / Chemistry / Biology
         if any(w in q_lower for w in ["physics", "chemistry", "quantum", "energy", "force", "molecule", "reaction", "acid", "cell", "biology"]):
-            return (
-                f"### 🔬 Scientific Overview: **{q_clean}**\n\n"
-                f"Here is a clear breakdown of the underlying scientific mechanism:\n\n"
-                f"- **Fundamental Law:** Physical and chemical systems are governed by conservation principles (energy, mass, and charge).\n"
-                f"- **Microscopic vs Macroscopic:** At the molecular level, interactions occur via electromagnetic forces and thermodynamics, dictating the observed macroscopic behaviors.\n"
-                f"- **Exam Takeaway:** When answering exam questions, always state the underlying assumptions, balance physical units, and note equilibrium states.\n\n"
-                f"> 💡 *Tip: Attach your textbook or lab notes to review the specific reaction pathways, diagrams, and exact page citations!*"
+            return notice + (
+                f"### Scientific Overview ({lvl.title()}): **{q_clean}**\n"
+                f"{context_hint}\n"
+                f"- **Fundamental Law:** Physical and chemical systems obey conservation of energy, mass, and charge.\n"
+                f"- **Mechanism:** Microscopic interactions drive observable macroscopic properties and equilibrium states.\n"
+                f"- **Exam Takeaway:** Always verify units, assumptions, and limiting cases.\n\n"
+                f"> **Tip:** Attach your textbook or lab notes for page-cited pathways and formulas."
             )
 
         # General Academic Query
-        return (
-            f"### 💡 Overview & Insights: **{q_clean}**\n\n"
-            f"Here is an intuitive academic explanation to help you understand this topic:\n\n"
-            f"- **Conceptual Framework:** Break down the idea into fundamental building blocks before tackling complex edge cases.\n"
-            f"- **Connecting Theory to Practice:** Notice how this concept applies in real-world scenarios and structured problem-solving.\n"
-            f"- **Active Recall Recommendation:** Try explaining this concept out loud in your own words or testing yourself on practice questions.\n\n"
-            f"> 💡 *Tip: You can attach your course PDFs anytime to ground answers directly in your lecture notes with exact page citations!*"
+        return notice + (
+            f"### Overview & Insights ({lvl.title()}): **{q_clean}**\n"
+            f"{context_hint}\n"
+            f"- **Conceptual Framework:** Break the topic into foundational definitions before tackling edge cases.\n"
+            f"- **Theory to Practice:** Connect how each principle applies to structured problem solving.\n"
+            f"- **Active Recall:** Summarize the core takeaway in 2 sentences and test yourself with a practice question.\n\n"
+            f"> **Tip:** Attach your course PDFs anytime to ground answers directly in your syllabus with clickable page citations."
         )
+
+    def _prepare_rag_prompt(
+        self,
+        question: str,
+        citations: List[SourceCitation],
+        level: str = "intermediate",
+        mode: str = "learn",
+    ) -> Tuple[str, str]:
+        context_blocks = []
+        for i, cite in enumerate(citations, 1):
+            clean_c_text = self._clean_slide_text(cite.text)
+            score_pct = int(round(max(0.0, min(1.0, cite.relevance_score)) * 100))
+            context_blocks.append(
+                f"[Source {i}: {cite.filename} | Page {cite.page_number} | Relevance: {score_pct}%]\n{clean_c_text}\n"
+            )
+        formatted_context = "\n---\n".join(context_blocks)
+        sys_inst = self.build_system_instruction(level=level, mode=mode, has_citations=True)
+
+        user_prompt = (
+            f"STUDY MATERIALS CONTEXT:\n{formatted_context}\n\n"
+            f"STUDENT'S QUESTION:\n{question}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"Answer clearly and thoroughly using your active explanation level and smart chat mode. "
+            f"Ground your facts strictly in the retrieved STUDY MATERIALS CONTEXT above, citing sources inline as [Filename, Page X] where helpful. "
+            f"If part of the question is not covered by the context, explicitly state what is missing rather than guessing or inventing citations."
+        )
+        return sys_inst, user_prompt
 
     def generate_rag_answer(
         self,
         question: str,
         citations: List[SourceCitation],
         user_name: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        level: str = "intermediate",
+        mode: str = "learn",
+        strict_doc_missing: bool = False,
+        searched_docs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Generates an answer grounded in retrieved RAG context using Gemini API.
-        If no citations exist, seamlessly answers using general academic tutor intelligence!
+        Generates an answer grounded in retrieved RAG context using Gemini API with conversation memory.
+        If no citations exist, communicates clearly and provides general tutor help if appropriate.
         """
-        # 1. Conversational Greeting check
         if self.is_greeting(question):
             return {
                 "answer": self.get_greeting_response(user_name),
                 "grounded": False,
-                "model_used": "conversational-agent"
+                "not_found_in_docs": False,
+                "model_used": "conversational-agent",
             }
 
-        # 2. If no citations are found, seamlessly answer as an intelligent academic tutor!
         if not citations:
-            return self.generate_general_academic_answer(question, user_name)
-
-        # 3. Format retrieved context
-        context_blocks = []
-        for i, cite in enumerate(citations, 1):
-            clean_c_text = self._clean_slide_text(cite.text)
-            context_blocks.append(
-                f"[Source {i}: {cite.filename} | Page {cite.page_number}]\n{clean_c_text}\n"
+            return self.generate_general_academic_answer(
+                question=question,
+                user_name=user_name,
+                conversation_history=conversation_history,
+                level=level,
+                mode=mode,
+                strict_doc_missing=strict_doc_missing,
+                searched_docs=searched_docs,
             )
-        formatted_context = "\n---\n".join(context_blocks)
 
-        user_prompt = (
-            f"STUDY MATERIALS CONTEXT:\n{formatted_context}\n\n"
-            f"STUDENT'S QUESTION:\n{question}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"Answer the question directly, cleanly, and naturally like ChatGPT or Gemini. "
-            f"Use clear paragraphs and bullet points where helpful. "
-            f"Do NOT include repetitive source disclaimers or repetitive citation footers (the UI displays citations automatically). "
-            f"Base your answer strictly on the provided context."
-        )
-
+        sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
         api_key = settings.gemini_api_key.strip()
         model_name = settings.gemini_model or self.default_model
 
         if not api_key:
-            synthesized_answer = self._synthesize_local_context(question, citations)
+            synthesized_answer = self._synthesize_local_context(question, citations, level=level, mode=mode)
             return {
                 "answer": synthesized_answer,
                 "grounded": True,
-                "model_used": "local-rag-synthesizer"
+                "not_found_in_docs": False,
+                "model_used": "local-rag-synthesizer",
             }
 
         try:
-            answer = self._call_gemini_api(api_key, model_name, user_prompt)
+            answer, used_model = self._call_gemini_api_with_meta(
+                api_key,
+                model_name,
+                user_prompt,
+                system_instruction=sys_inst,
+                conversation_history=conversation_history,
+            )
             return {
                 "answer": answer,
                 "grounded": True,
-                "model_used": model_name
+                "not_found_in_docs": False,
+                "model_used": used_model,
             }
         except Exception as e:
             print(f"[GeminiService] Gemini call failed for RAG query: {e}")
-            local_ans = self._synthesize_local_context(question, citations)
+            local_ans = self._synthesize_local_context(question, citations, level=level, mode=mode)
             return {
                 "answer": local_ans,
                 "grounded": True,
-                "model_used": "local-fallback"
+                "not_found_in_docs": False,
+                "model_used": "local-fallback",
             }
 
-    def _call_gemini_api(self, api_key: str, model: str, prompt: str) -> str:
+    def _call_gemini_api_with_meta(
+        self,
+        api_key: str,
+        model: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Tuple[str, str]:
         payload = {
-            "contents": [
-                {
-                    "parts": [{"text": prompt}]
-                }
-            ],
+            "contents": self._build_gemini_contents(prompt, conversation_history),
             "systemInstruction": {
-                "parts": [{"text": SYSTEM_INSTRUCTION}]
+                "parts": [{"text": system_instruction or SYSTEM_INSTRUCTION}]
             },
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.25,
                 "maxOutputTokens": 2048,
-            }
+            },
         }
 
         headers = {"x-goog-api-key": api_key}
         candidates_to_try = [model] + [m for m in self.FALLBACK_MODELS if m != model]
         resp = None
+        used_model = model
         last_error = None
         for idx, candidate_model in enumerate(candidates_to_try):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:generateContent"
             resp = requests.post(url, headers=headers, json=payload, timeout=30.0)
             if resp.status_code == 200:
+                used_model = candidate_model
                 break
             err_text = resp.text
             try:
@@ -255,7 +512,6 @@ class GeminiService:
             except Exception:
                 err_msg = err_text
             last_error = f"Gemini API Error ({resp.status_code}): {err_msg}"
-            # Fall back to the next Flash candidate only for retired/rate-limited/overloaded models
             if resp.status_code not in (404, 429, 503) or idx == len(candidates_to_try) - 1:
                 raise Exception(last_error)
 
@@ -274,19 +530,191 @@ class GeminiService:
 
         answer_chunks = [p.get("text", "") for p in text_parts if not p.get("thought") and p.get("text")]
         if answer_chunks:
-            return "\n".join(answer_chunks).strip()
-        return text_parts[0].get("text", "")
+            return "\n".join(answer_chunks).strip(), used_model
+        return text_parts[0].get("text", ""), used_model
 
-    def _synthesize_local_context(self, question: str, citations: List[SourceCitation]) -> str:
+    def _call_gemini_api(self, api_key: str, model: str, prompt: str) -> str:
+        text, _ = self._call_gemini_api_with_meta(api_key, model, prompt)
+        return text
+
+    def _stream_gemini_api(
+        self,
+        api_key: str,
+        model: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Generator[Tuple[str, str], None, None]:
+        """Streams (delta_text, used_model) directly from Gemini streamGenerateContent SSE."""
+        payload = {
+            "contents": self._build_gemini_contents(prompt, conversation_history),
+            "systemInstruction": {
+                "parts": [{"text": system_instruction or SYSTEM_INSTRUCTION}]
+            },
+            "generationConfig": {
+                "temperature": 0.25,
+                "maxOutputTokens": 2048,
+            },
+        }
+        headers = {"x-goog-api-key": api_key}
+        candidates_to_try = [model] + [m for m in self.FALLBACK_MODELS if m != model]
+
+        resp = None
+        used_model = model
+        last_error = None
+        for idx, candidate_model in enumerate(candidates_to_try):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{candidate_model}:streamGenerateContent?alt=sse"
+            r = requests.post(url, headers=headers, json=payload, timeout=(15.0, 60.0), stream=True)
+            if r.status_code == 200:
+                resp = r
+                used_model = candidate_model
+                break
+            err_text = r.text
+            r.close()
+            try:
+                err_msg = json.loads(err_text).get("error", {}).get("message", err_text)
+            except Exception:
+                err_msg = err_text
+            last_error = f"Gemini Stream Error ({r.status_code}): {err_msg}"
+            if r.status_code not in (404, 429, 503) or idx == len(candidates_to_try) - 1:
+                raise Exception(last_error)
+
+        if resp is None:
+            raise Exception(last_error or "Gemini stream connection failed.")
+
+        try:
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data:"):
+                    continue
+                json_str = raw_line[5:].strip()
+                if not json_str or json_str == "[DONE]":
+                    continue
+                try:
+                    chunk_obj = json.loads(json_str)
+                except Exception:
+                    continue
+                candidates = chunk_obj.get("candidates", [])
+                if not candidates:
+                    continue
+                parts = candidates[0].get("content", {}).get("parts", [])
+                for part in parts:
+                    if part.get("thought"):
+                        continue
+                    txt = part.get("text")
+                    if txt:
+                        yield txt, used_model
+        finally:
+            resp.close()
+
+    def stream_chat_response(
+        self,
+        question: str,
+        citations: List[SourceCitation],
+        user_name: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        level: str = "intermediate",
+        mode: str = "learn",
+        strict_doc_missing: bool = False,
+        searched_docs: Optional[List[str]] = None,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Yields streaming text delta dicts {"text": ..., "model_used": ...} via Gemini SSE
+        with graceful chunked local fallback if Gemini is unconfigured or errors before output starts.
+        """
+        if self.is_greeting(question):
+            msg = self.get_greeting_response(user_name)
+            for piece in self._chunk_text_for_stream(msg):
+                yield {"text": piece, "model_used": "StudyMind Conversational"}
+            return
+
+        api_key = settings.gemini_api_key.strip()
+        model_name = settings.gemini_model or self.default_model
+
+        if citations:
+            sys_inst, user_prompt = self._prepare_rag_prompt(question, citations, level=level, mode=mode)
+        else:
+            sys_inst = self.build_system_instruction(
+                level=level,
+                mode=mode,
+                has_citations=False,
+                strict_doc_missing=strict_doc_missing,
+            )
+            scope_note = ""
+            if strict_doc_missing:
+                docs_desc = ", ".join(searched_docs[:4]) if searched_docs else "your uploaded documents"
+                scope_note = (
+                    f"NOTE: I searched {docs_desc}, and this exact answer was NOT found in the uploaded passages.\n"
+                    f"Start with a `> **Warning — Not Found in Uploaded Documents:** ...` notice mentioning `{docs_desc}`, "
+                    f"then provide general academic guidance.\n\n"
+                )
+            user_prompt = (
+                f"{scope_note}STUDENT'S QUESTION:\n{question}\n\n"
+                f"INSTRUCTIONS:\nFollow your active explanation level and smart chat mode and maintain conversation continuity."
+            )
+
+        yielded_any = False
+        if api_key:
+            try:
+                for delta, used_model in self._stream_gemini_api(
+                    api_key,
+                    model_name,
+                    user_prompt,
+                    system_instruction=sys_inst,
+                    conversation_history=conversation_history,
+                ):
+                    yielded_any = True
+                    yield {"text": delta, "model_used": used_model}
+                if yielded_any:
+                    return
+            except Exception as e:
+                print(f"[GeminiService] Stream failed (yielded_any={yielded_any}): {e}")
+                if yielded_any:
+                    raise
+
+        # Seamless fallback if unconfigured or failed before first token
+        if citations:
+            fallback_text = self._synthesize_local_context(question, citations, level=level, mode=mode)
+            used = "local-rag-synthesizer" if not api_key else "local-fallback"
+        else:
+            fallback_text = self._synthesize_general_academic_fallback(
+                question,
+                level=level,
+                mode=mode,
+                conversation_history=conversation_history,
+                strict_doc_missing=strict_doc_missing,
+                searched_docs=searched_docs,
+            )
+            used = "local-academic-tutor"
+
+        for piece in self._chunk_text_for_stream(fallback_text):
+            yield {"text": piece, "model_used": used}
+            time.sleep(0.015)
+
+    def _chunk_text_for_stream(self, text: str, words_per_chunk: int = 5) -> List[str]:
+        tokens = re.findall(r"\S+\s*", text)
+        if not tokens:
+            return [text] if text else []
+        return ["".join(tokens[i:i + words_per_chunk]) for i in range(0, len(tokens), words_per_chunk)]
+
+    def _synthesize_local_context(
+        self,
+        question: str,
+        citations: List[SourceCitation],
+        level: str = "intermediate",
+        mode: str = "learn",
+    ) -> str:
         """
         Synthesizes a clean, natural, student-friendly answer like ChatGPT/Gemini
-        from top retrieved document chunks.
+        from top retrieved document chunks, respecting explanation level and mode.
         """
         if not citations:
             return "I could not find information relevant to this question in your uploaded documents."
 
         clean_q = question.strip()
-        is_exam_request = any(k in clean_q.lower() for k in ["practice question", "exam question", "quiz me", "test my", "questions based on"])
+        is_exam_request = (
+            self.normalize_mode(mode) == "exam"
+            or any(k in clean_q.lower() for k in ["practice question", "exam question", "quiz me", "test my", "questions based on"])
+        )
 
         # Clean all citations of slide boilerplate
         cleaned_chunks = []

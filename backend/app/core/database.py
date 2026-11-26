@@ -54,8 +54,23 @@ def seed_sample_users():
     finally:
         db.close()
 
+def ensure_schema_columns():
+    """Safely adds additive columns to existing databases without destroying user data."""
+    from sqlalchemy import inspect, text
+    try:
+        inspector = inspect(engine)
+        if inspector.has_table("chat_messages"):
+            cols = {c["name"] for c in inspector.get_columns("chat_messages")}
+            if "feedback" not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE chat_messages ADD COLUMN feedback VARCHAR(20)"))
+    except Exception as e:
+        print(f"[Database] Additive schema migration check skipped: {e}")
+
+
 def init_db():
     # Import all models before create_all
     import app.models.db_models
     Base.metadata.create_all(bind=engine)
+    ensure_schema_columns()
     seed_sample_users()

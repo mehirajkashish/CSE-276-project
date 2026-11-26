@@ -58,6 +58,7 @@ class ChatMessage(Base):
     message = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=utc_now)
     source_metadata = Column(Text, nullable=True)  # JSON string of citations
+    feedback = Column(String(20), nullable=True)  # "helpful" | "not_helpful" | None
 
     # Relationships
     conversation = relationship("ChatConversation", back_populates="messages")

@@ -88,16 +88,38 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     document_ids: Optional[List[str]] = Field(default_factory=list)
     top_k: Optional[int] = 4
+    explanation_level: Optional[str] = "intermediate"  # "beginner" | "intermediate" | "advanced"
+    mode: Optional[str] = "learn"  # "learn" | "exam" | "practice" | "code" | "research"
+    replace_from_message_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceCitation]
     conversation_id: str
     message_id: str
+    user_message_id: Optional[str] = None
     grounded: bool = True
+    not_found_in_docs: bool = False
+    mode: str = "learn"
+    explanation_level: str = "intermediate"
+    title: Optional[str] = None
     llm_provider: str = "Gemini"
-    model_used: str = "gemini-1.5-flash"
+    model_used: str = "gemini-flash-lite-latest"
     execution_time_ms: float
+
+class ConversationRenameRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+class MessageFeedbackRequest(BaseModel):
+    feedback: Optional[str] = None  # "helpful" | "not_helpful" | None
+
+class ChatActionRequest(BaseModel):
+    action_type: str  # "explain_simpler" | "example" | "summarize" | "mcqs" | "flashcards" | "practice_questions"
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    document_ids: Optional[List[str]] = Field(default_factory=list)
+    explanation_level: Optional[str] = "intermediate"
+    mode: Optional[str] = "learn"
 
 class MessageResponse(BaseModel):
     id: str
@@ -106,6 +128,7 @@ class MessageResponse(BaseModel):
     message: str
     timestamp: datetime
     sources: Optional[List[SourceCitation]] = None
+    feedback: Optional[str] = None
 
     class Config:
         from_attributes = True

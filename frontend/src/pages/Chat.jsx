@@ -1,38 +1,54 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Send,
   Sparkles,
   Trash2,
-  FileText,
   Filter,
-  CheckCircle2,
   AlertCircle,
   Loader2,
   HelpCircle,
   Plus,
   MessageSquare,
   History,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
   BookOpen,
   Mic,
   MicOff,
   Paperclip,
   UploadCloud,
-  FileUp,
   X,
-  GraduationCap
+  GraduationCap,
+  Square,
+  Pencil,
+  Check,
+  Search,
+  Code2,
+  FlaskConical,
+  ClipboardList,
+  Compass,
 } from 'lucide-react';
 import ChatBubble from '../components/ChatBubble';
 import { chatApi, documentApi } from '../services/api';
 
+const CHAT_MODES = [
+  { id: 'learn', label: 'Learn Mode', hint: 'Clear concepts & examples', icon: Compass },
+  { id: 'exam', label: 'Exam Mode', hint: 'Definitions, rubric & conclusions', icon: ClipboardList },
+  { id: 'practice', label: 'Practice Mode', hint: 'Questions, evaluation & mistakes', icon: HelpCircle },
+  { id: 'code', label: 'Code Mode', hint: 'Code walkthrough, debug & Big-O', icon: Code2 },
+  { id: 'research', label: 'Research Mode', hint: 'Cross-PDF evidence & synthesis', icon: FlaskConical },
+];
+
+const EXPLANATION_LEVELS = [
+  { id: 'beginner', label: 'Beginner', desc: 'Simple English & basic analogies' },
+  { id: 'intermediate', label: 'Intermediate', desc: 'Detailed academic depth' },
+  { id: 'advanced', label: 'Advanced', desc: 'Rigorous technical & mathematical depth' },
+];
+
 const QUICK_PROMPTS = [
-  { label: 'Summarize Key Points', prompt: 'Provide a structured summary of the main points in the study materials.' },
-  { label: 'Key Formulas & Concepts', prompt: 'List and explain the most important formulas, definitions, and concepts.' },
-  { label: 'Quiz Me', prompt: 'Generate 3 exam practice questions based on the uploaded materials to test my understanding.' },
-  { label: 'Explain Simply (ELI5)', prompt: 'Explain the core topic in simple, student-friendly terms with real-world analogies.' },
+  { label: 'Summarize Key Points', prompt: 'Provide a structured chapter summary of the main concepts in the study materials.' },
+  { label: 'Step-by-Step Math', prompt: 'Walk through the core formulas and derivations step-by-step.' },
+  { label: 'Practice & Quiz', prompt: 'Ask me a practice question to test my understanding and evaluate my answer.' },
+  { label: 'Explain Concept Simply', prompt: 'Explain the foundational concept clearly with an everyday example.' },
 ];
 
 export default function Chat() {
@@ -44,30 +60,33 @@ export default function Chat() {
   const isNewQuery = searchParams.get('new');
 
   const [conversations, setConversations] = useState([]);
+  const [threadSearch, setThreadSearch] = useState('');
   const [activeConversationId, setActiveConversationId] = useState(urlConvId || null);
+  const [renamingConvId, setRenamingConvId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
   const [messages, setMessages] = useState([]);
   const [inputQuestion, setInputQuestion] = useState('');
   const [documents, setDocuments] = useState([]);
-  const [selectedDocId, setSelectedDocId] = useState(preselectedDocId || 'all');
+  const [selectedDocIds, setSelectedDocIds] = useState(preselectedDocId ? [preselectedDocId] : []);
   const [loading, setLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(true);
 
-  // Voice Feature (Speech-to-Text) state
+  const [tutorLevel, setTutorLevel] = useState('intermediate');
+  const [chatMode, setChatMode] = useState('learn');
+
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
 
-  // File Upload in Chat state
   const [isUploadingChatFile, setIsUploadingChatFile] = useState(false);
   const [uploadProgressText, setUploadProgressText] = useState('');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef(null);
 
-  // AI Tutor Persona & Depth Controls
-  const [tutorLevel, setTutorLevel] = useState('intermediate'); // beginner, intermediate, advanced
-  const [tutorMode, setTutorMode] = useState('standard'); // standard, eli5, exam, hinglish, code
-
+  const abortControllerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -76,6 +95,9 @@ export default function Chat() {
 
   useEffect(() => {
     loadInitialData();
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -84,7 +106,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (preselectedDocId) {
-      setSelectedDocId(preselectedDocId);
+      setSelectedDocIds([preselectedDocId]);
     }
   }, [preselectedDocId]);
 
@@ -95,12 +117,11 @@ export default function Chat() {
   }, [isNewQuery]);
 
   useEffect(() => {
-    if (activeConversationId) {
+    if (activeConversationId && !isStreaming) {
       loadConversationMessages(activeConversationId);
     }
   }, [activeConversationId]);
 
-  // Initialize Speech Recognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -108,43 +129,23 @@ export default function Chat() {
       recognition.continuous = false;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
-
-      recognition.onstart = () => {
-        setIsListening(true);
-      };
-
+      recognition.onstart = () => setIsListening(true);
       recognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
-          .map((result) => result[0].transcript)
-          .join('');
+        const transcript = Array.from(event.results).map((r) => r[0].transcript).join('');
         setInputQuestion(transcript);
       };
-
-      recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
     }
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-    };
+    return () => recognitionRef.current?.abort();
   }, []);
 
   const toggleVoiceListening = () => {
     if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
-      alert('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
       return;
     }
-
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
@@ -152,7 +153,7 @@ export default function Chat() {
       try {
         recognitionRef.current?.start();
       } catch (err) {
-        console.warn('Could not start recognition:', err);
+        console.warn('Could not start speech recognition:', err);
       }
     }
   };
@@ -181,7 +182,6 @@ export default function Chat() {
     }
   };
 
-  // Fixed message loading: unwrap .messages from ConversationDetail
   const loadConversationMessages = async (convId) => {
     try {
       setLoading(true);
@@ -196,6 +196,9 @@ export default function Chat() {
   };
 
   const handleNewConversation = () => {
+    abortControllerRef.current?.abort();
+    setIsStreaming(false);
+    setLoading(false);
     setActiveConversationId(null);
     setMessages([]);
     setError(null);
@@ -203,100 +206,331 @@ export default function Chat() {
   };
 
   const handleSelectConversation = (convId) => {
+    if (isStreaming) abortControllerRef.current?.abort();
     setActiveConversationId(convId);
     setSearchParams({ conv: convId });
     setError(null);
   };
 
-  const handleDeleteConversation = async (e, convId) => {
+  const startRenameConversation = (e, conv) => {
     e.stopPropagation();
-    if (window.confirm('Delete this conversation thread?')) {
-      try {
-        await chatApi.deleteConversation(convId);
-        const updated = conversations.filter((c) => c.id !== convId);
-        setConversations(updated);
-        if (activeConversationId === convId) {
-          if (updated.length > 0) {
-            setActiveConversationId(updated[0].id);
-          } else {
-            handleNewConversation();
-          }
-        }
-      } catch (err) {
-        alert('Failed to delete conversation: ' + (err.response?.data?.detail || err.message));
-      }
+    setRenamingConvId(conv.id);
+    setRenameDraft(conv.title || '');
+  };
+
+  const submitRenameConversation = async (e, convId) => {
+    if (e) e.stopPropagation();
+    const cleaned = renameDraft.trim();
+    if (!cleaned) {
+      setRenamingConvId(null);
+      return;
+    }
+    try {
+      const updated = await chatApi.renameConversation(convId, cleaned);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, title: updated.title || cleaned } : c))
+      );
+    } catch (err) {
+      setError('Failed to rename thread: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setRenamingConvId(null);
     }
   };
 
-  const handleSendMessage = async (customQuestion = null) => {
-    const q = customQuestion || inputQuestion;
-    if (!q || !q.trim() || loading) return;
+  const handleDeleteConversation = async (e, convId) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this conversation thread?')) return;
+    try {
+      await chatApi.deleteConversation(convId);
+      const updated = conversations.filter((c) => c.id !== convId);
+      setConversations(updated);
+      if (activeConversationId === convId) {
+        if (updated.length > 0) {
+          setActiveConversationId(updated[0].id);
+        } else {
+          handleNewConversation();
+        }
+      }
+    } catch (err) {
+      setError('Failed to delete conversation: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleStopGeneration = () => {
+    abortControllerRef.current?.abort();
+  };
+
+  const handleToggleDocumentFilter = (docId) => {
+    if (docId === 'all') {
+      setSelectedDocIds([]);
+      return;
+    }
+    setSelectedDocIds((prev) =>
+      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
+    );
+  };
+
+  const streamQuestionTurn = async ({
+    questionText,
+    replaceFromIndex = null,
+    replaceFromMessageId = null,
+  }) => {
+    const trimmed = (questionText || '').trim();
+    if (!trimmed || loading || isStreaming) return;
 
     setError(null);
-    const userMsg = {
+    const tempUserId = `temp-u-${Date.now()}`;
+    const tempAsstId = `temp-a-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+
+    const optimisticUser = {
+      id: tempUserId,
       role: 'user',
-      content: q.trim(),
-      timestamp: new Date().toISOString()
+      content: trimmed,
+      timestamp: nowIso,
+    };
+    const optimisticAssistant = {
+      id: tempAsstId,
+      role: 'assistant',
+      content: '',
+      sources: [],
+      isStreaming: true,
+      mode: chatMode,
+      explanation_level: tutorLevel,
+      timestamp: nowIso,
     };
 
-    setMessages((prev) => [...(Array.isArray(prev) ? prev : []), userMsg]);
-    setInputQuestion('');
-    setLoading(true);
+    setMessages((prev) => {
+      const base = Array.isArray(prev) ? prev : [];
+      const sliced = replaceFromIndex !== null ? base.slice(0, replaceFromIndex) : base;
+      return [...sliced, optimisticUser, optimisticAssistant];
+    });
+
+    if (replaceFromIndex === null) {
+      setInputQuestion('');
+    }
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    let resolvedConvId = activeConversationId;
+    let resolvedAsstId = tempAsstId;
 
     try {
-      const docIds = selectedDocId === 'all' ? [] : [selectedDocId];
-      let finalQuery = q.trim();
-      if (!customQuestion) {
-        const prefixes = [];
-        if (tutorLevel === 'beginner') prefixes.push('[Level: Beginner / Foundational]');
-        if (tutorLevel === 'advanced') prefixes.push('[Level: Advanced / Rigorous]');
-        if (tutorMode === 'eli5') prefixes.push('[Style: Explain Like I am 5 with everyday analogy]');
-        if (tutorMode === 'exam') prefixes.push('[Style: High-Yield Exam Oriented with marking tips]');
-        if (tutorMode === 'hinglish') prefixes.push('[Style: Conversational Hindi-English Hinglish blend]');
-        if (tutorMode === 'code') prefixes.push('[Style: Programming Code Implementation & Complexity]');
-        if (prefixes.length > 0) {
-          finalQuery = `${prefixes.join(' ')}\n\n${finalQuery}`;
-        }
-      }
-
-      const response = await chatApi.sendMessage({
-        question: finalQuery,
+      await chatApi.streamMessage({
+        question: trimmed,
         conversation_id: activeConversationId,
-        document_ids: docIds,
-        top_k: 4
+        document_ids: selectedDocIds,
+        top_k: chatMode === 'research' ? 6 : 4,
+        mode: chatMode,
+        explanation_level: tutorLevel,
+        replace_from_message_id: replaceFromMessageId,
+        signal: controller.signal,
+        onMeta: (meta) => {
+          if (meta.conversation_id) {
+            resolvedConvId = meta.conversation_id;
+          }
+          if (meta.message_id) {
+            resolvedAsstId = meta.message_id;
+          }
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id === tempUserId && meta.user_message_id) {
+                return { ...m, id: meta.user_message_id };
+              }
+              if (m.id === tempAsstId || m.id === resolvedAsstId) {
+                return {
+                  ...m,
+                  id: meta.message_id || m.id,
+                  sources: meta.sources || [],
+                  not_found_in_docs: Boolean(meta.not_found_in_docs),
+                  mode: meta.mode || m.mode,
+                  explanation_level: meta.explanation_level || m.explanation_level,
+                };
+              }
+              return m;
+            })
+          );
+        },
+        onChunk: (_delta, fullText) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === resolvedAsstId || m.id === tempAsstId
+                ? { ...m, content: fullText, isStreaming: true }
+                : m
+            )
+          );
+        },
+        onDone: (done) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === resolvedAsstId || m.id === tempAsstId
+                ? {
+                    ...m,
+                    id: done.message_id || m.id,
+                    content: done.answer || m.content,
+                    model_used: done.model_used,
+                    isStreaming: false,
+                  }
+                : m
+            )
+          );
+        },
       });
 
-      if (response.conversation_id && response.conversation_id !== activeConversationId) {
-        setActiveConversationId(response.conversation_id);
-        const updatedConvs = await chatApi.getConversations().catch(() => []);
-        setConversations(updatedConvs || []);
+      if (resolvedConvId && resolvedConvId !== activeConversationId) {
+        setActiveConversationId(resolvedConvId);
+        setSearchParams({ conv: resolvedConvId });
       }
+      const updatedConvs = await chatApi.getConversations().catch(() => null);
+      if (updatedConvs) setConversations(updatedConvs);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === resolvedAsstId || m.id === tempAsstId
+              ? {
+                  ...m,
+                  content: m.content
+                    ? `${m.content}\n\n*(Generation stopped)*`
+                    : '*(Generation stopped before any tokens arrived)*',
+                  isStreaming: false,
+                }
+              : m
+          )
+        );
+      } else {
+        const msg = err.response?.data?.detail || err.message || 'Network or streaming timeout error.';
+        setError(msg);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === resolvedAsstId || m.id === tempAsstId
+              ? {
+                  ...m,
+                  content: m.content
+                    ? `${m.content}\n\n> **Warning — Stream Interrupted:** ${msg}`
+                    : `> **Warning — Error Generating Response:** ${msg}`,
+                  isStreaming: false,
+                }
+              : m
+          )
+        );
+      }
+    } finally {
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+    }
+  };
 
-      const assistantMsg = {
-        role: 'assistant',
-        content: response.answer,
-        sources: response.sources || [],
-        timestamp: response.timestamp || new Date().toISOString()
+  const handleSendMessage = (customQuestion = null) => {
+    const q = customQuestion ?? inputQuestion;
+    streamQuestionTurn({ questionText: q });
+  };
+
+  const handleContextualAction = async (actionType, refMessage) => {
+    if (loading || isStreaming) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await chatApi.runContextualAction({
+        action_type: actionType,
+        conversation_id: activeConversationId,
+        message_id: refMessage?.id || null,
+        document_ids: selectedDocIds,
+        explanation_level: actionType === 'explain_simpler' ? 'beginner' : tutorLevel,
+        mode: chatMode,
+      });
+
+      const actionLabels = {
+        explain_simpler: 'Explain this simpler',
+        example: 'Give a worked example',
+        summarize: 'Summarize key takeaways',
+        mcqs: 'Generate practice MCQs',
+        flashcards: 'Create flashcards',
+        practice_questions: 'Give practice questions',
       };
 
-      setMessages((prev) => [...(Array.isArray(prev) ? prev : []), assistantMsg]);
+      const nowIso = new Date().toISOString();
+      const userActionMsg = {
+        id: res.user_message_id || `act-u-${Date.now()}`,
+        role: 'user',
+        content: actionLabels[actionType] || actionType,
+        timestamp: nowIso,
+      };
+      const asstActionMsg = {
+        id: res.message_id || `act-a-${Date.now()}`,
+        role: 'assistant',
+        content: res.answer,
+        sources: res.sources || [],
+        mode: res.mode,
+        explanation_level: res.explanation_level,
+        model_used: res.model_used,
+        timestamp: nowIso,
+      };
+      setMessages((prev) => [...(Array.isArray(prev) ? prev : []), userActionMsg, asstActionMsg]);
+
+      if (res.conversation_id && res.conversation_id !== activeConversationId) {
+        setActiveConversationId(res.conversation_id);
+        setSearchParams({ conv: res.conversation_id });
+      }
+      const updatedConvs = await chatApi.getConversations().catch(() => null);
+      if (updatedConvs) setConversations(updatedConvs);
     } catch (err) {
-      const msg = err.response?.data?.detail || err.message || 'Failed to generate answer.';
-      setError(msg);
-      setMessages((prev) => [
-        ...(Array.isArray(prev) ? prev : []),
-        {
-          role: 'assistant',
-          content: `⚠️ **Error generating response:** ${msg}`,
-          timestamp: new Date().toISOString()
-        }
-      ]);
+      setError('Action failed: ' + (err.response?.data?.detail || err.message));
     } finally {
       setLoading(false);
     }
   };
 
-  // Direct File Upload in Chat
+  const handleRegenerateMessage = (msgIdx) => {
+    if (loading || isStreaming) return;
+    const safeList = Array.isArray(messages) ? messages : [];
+    const targetAsst = safeList[msgIdx];
+    let priorUserIdx = -1;
+    for (let i = msgIdx - 1; i >= 0; i--) {
+      if (safeList[i]?.role === 'user') {
+        priorUserIdx = i;
+        break;
+      }
+    }
+    if (priorUserIdx === -1) return;
+    const priorUser = safeList[priorUserIdx];
+    const priorText = priorUser.content || priorUser.message || '';
+    const cutId = priorUser.id && !String(priorUser.id).startsWith('temp-')
+      ? priorUser.id
+      : targetAsst?.id || null;
+
+    streamQuestionTurn({
+      questionText: priorText,
+      replaceFromIndex: priorUserIdx,
+      replaceFromMessageId: cutId,
+    });
+  };
+
+  const handleEditUserMessage = (msgIdx, updatedText) => {
+    if (loading || isStreaming) return;
+    const safeList = Array.isArray(messages) ? messages : [];
+    const targetUser = safeList[msgIdx];
+    const cutId = targetUser?.id && !String(targetUser.id).startsWith('temp-') ? targetUser.id : null;
+    streamQuestionTurn({
+      questionText: updatedText,
+      replaceFromIndex: msgIdx,
+      replaceFromMessageId: cutId,
+    });
+  };
+
+  const handleFeedback = async (messageId, feedbackVal) => {
+    try {
+      await chatApi.setMessageFeedback(messageId, feedbackVal);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, feedback: feedbackVal } : m))
+      );
+    } catch (err) {
+      console.warn('Could not save feedback:', err);
+    }
+  };
+
   const handleChatFileUpload = async (file) => {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.pdf')) {
@@ -306,27 +540,25 @@ export default function Chat() {
 
     setIsUploadingChatFile(true);
     setUploadProgressText(`Uploading and indexing "${file.name}"...`);
-
     try {
       const uploadRes = await documentApi.uploadDocuments([file]);
-      const newDocs = uploadRes.documents || [];
-      const uploadedDoc = newDocs[0];
-
-      // Refresh documents list
+      const uploadedDoc = (uploadRes.documents || [])[0];
       const refreshedDocs = await documentApi.getDocuments();
       setDocuments(refreshedDocs || []);
 
       if (uploadedDoc) {
-        setSelectedDocId(uploadedDoc.id);
+        setSelectedDocIds([uploadedDoc.id]);
       }
 
-      // Add friendly system message into chat
-      const systemMsg = {
-        role: 'system',
-        content: `📄 Uploaded and indexed "${file.name}" (${uploadedDoc?.page_count || 1} pages, ${uploadedDoc?.chunk_count || 1} chunks). RAG vector index ready!`,
-        timestamp: new Date().toISOString()
-      };
-      setMessages((prev) => [...(Array.isArray(prev) ? prev : []), systemMsg]);
+      setMessages((prev) => [
+        ...(Array.isArray(prev) ? prev : []),
+        {
+          id: `sys-${Date.now()}`,
+          role: 'system',
+          content: `Indexed "${file.name}" (${uploadedDoc?.total_pages ?? uploadedDoc?.page_count ?? 1} pages, ${uploadedDoc?.total_chunks ?? uploadedDoc?.chunk_count ?? 1} chunks). Ready for cited RAG queries.`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } catch (err) {
       setError('File upload failed: ' + (err.response?.data?.detail || err.message));
     } finally {
@@ -346,7 +578,13 @@ export default function Chat() {
     navigate(`/viewer?doc=${docId}&page=${pageNumber}`);
   };
 
-  const selectedDocObj = documents.find((d) => d.id === selectedDocId);
+  const filteredConversations = useMemo(() => {
+    const q = threadSearch.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter((c) => (c.title || '').toLowerCase().includes(q));
+  }, [conversations, threadSearch]);
+
+  const activeModeObj = CHAT_MODES.find((m) => m.id === chatMode) || CHAT_MODES[0];
   const safeMessages = Array.isArray(messages) ? messages : [];
 
   return (
@@ -359,148 +597,225 @@ export default function Chat() {
       onDrop={(e) => {
         e.preventDefault();
         setIsDraggingOver(false);
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        if (e.dataTransfer.files?.length > 0) {
           handleChatFileUpload(e.dataTransfer.files[0]);
         }
       }}
       className="flex h-[calc(100vh-7.5rem)] max-w-7xl mx-auto gap-4 relative"
     >
-      {/* Drag & Drop Visual Overlay */}
       {isDraggingOver && (
-        <div className="absolute inset-0 z-50 bg-blue-600/20 backdrop-blur-sm border-2 border-dashed border-blue-400 rounded-2xl flex flex-col items-center justify-center pointer-events-none">
-          <UploadCloud className="w-16 h-16 text-blue-400 animate-bounce mb-3" />
-          <h3 className="text-lg font-bold text-white">Drop your PDF study material here</h3>
-          <p className="text-xs text-blue-200 mt-1">StudyMind will extract, chunk, and index it into FAISS automatically</p>
+        <div className="absolute inset-0 z-50 bg-[#4F8CFF]/15 backdrop-blur-sm border-2 border-dashed border-[#4F8CFF] rounded-2xl flex flex-col items-center justify-center pointer-events-none">
+          <UploadCloud className="w-16 h-16 text-[#4F8CFF] animate-bounce mb-3" />
+          <h3 className="text-lg font-bold text-[#F1F5FC]">Drop your study PDF here</h3>
+          <p className="text-xs text-[#8A9BB8] mt-1">StudyMind will extract, chunk, and index it into FAISS</p>
         </div>
       )}
 
-      {/* Hidden File Input */}
       <input
         type="file"
         ref={fileInputRef}
         accept=".pdf,application/pdf"
         className="hidden"
         onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
+          if (e.target.files?.length > 0) {
             handleChatFileUpload(e.target.files[0]);
             e.target.value = '';
           }
         }}
       />
 
-      {/* Collapsible Past Conversations Drawer */}
-      <div
+      {/* Collapsible Conversation Memory Sidebar */}
+      <aside
         className={`${
-          showHistoryDrawer ? 'w-64 sm:w-72' : 'w-0 hidden md:block md:w-0'
-        } transition-all duration-300 overflow-hidden flex flex-col bg-[#141414] border border-[#262626] rounded-2xl shadow-xl shrink-0 select-none`}
+          showHistoryDrawer ? 'w-64 sm:w-72' : 'w-0 hidden md:block md:w-0 border-0'
+        } transition-all duration-300 overflow-hidden flex flex-col bg-[#0C1424] border border-[#1E2E4A] rounded-2xl shadow-xl shrink-0 select-none`}
       >
-        <div className="p-3 border-b border-[#222222] flex items-center justify-between">
+        <div className="p-3 border-b border-[#1E2E4A] flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <History className="w-4 h-4 text-white" />
-            <span className="text-xs font-bold text-white uppercase tracking-wider">
-              Chat Threads
+            <History className="w-4 h-4 text-[#4F8CFF]" />
+            <span className="text-xs font-bold text-[#F1F5FC] uppercase tracking-wider">
+              Study Threads
             </span>
           </div>
           <button
+            type="button"
             onClick={handleNewConversation}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-neutral-200 text-black text-xs font-semibold transition shadow-sm active:scale-95"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#4F8CFF] hover:bg-[#3B7BFA] text-white text-xs font-semibold transition shadow-sm active:scale-95"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>New</span>
           </button>
         </div>
 
+        <div className="p-2 border-b border-[#1E2E4A]/70">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-[#64748B] absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={threadSearch}
+              onChange={(e) => setThreadSearch(e.target.value)}
+              placeholder="Search conversations..."
+              className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-[#080D18] border border-[#1E2E4A] text-xs text-[#F1F5FC] placeholder-[#64748B] focus:outline-none focus:border-[#4F8CFF]"
+            />
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-none">
-          {conversations.length === 0 ? (
-            <div className="py-8 text-center text-xs text-[#666666] px-3">
-              <MessageSquare className="w-6 h-6 mx-auto mb-2 text-[#666666]" />
-              <p>No saved threads yet.</p>
-              <p className="text-[11px] mt-1">Start asking a question to create a thread.</p>
+          {filteredConversations.length === 0 ? (
+            <div className="py-10 text-center text-xs text-[#64748B] px-3">
+              <MessageSquare className="w-6 h-6 mx-auto mb-2 text-[#4F8CFF]/50" />
+              <p>No conversations found.</p>
+              <p className="text-[11px] mt-1 text-[#8A9BB8]">Start asking a question to create a thread.</p>
             </div>
           ) : (
-            conversations.map((c) => {
+            filteredConversations.map((c) => {
               const isActive = c.id === activeConversationId;
+              const isRenaming = renamingConvId === c.id;
               return (
                 <div
                   key={c.id}
-                  onClick={() => handleSelectConversation(c.id)}
-                  className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition ${
+                  onClick={() => !isRenaming && handleSelectConversation(c.id)}
+                  className={`group flex items-center justify-between gap-1.5 p-2.5 rounded-xl cursor-pointer text-xs transition ${
                     isActive
-                      ? 'bg-[#242424] text-white border border-[#2E2E2E] font-medium'
-                      : 'text-[#9A9A9A] hover:text-white hover:bg-[#1A1A1A] border border-transparent'
+                      ? 'bg-[#16243B] text-[#F1F5FC] border border-[#4F8CFF]/40 font-medium shadow-sm'
+                      : 'text-[#8A9BB8] hover:text-[#F1F5FC] hover:bg-[#111C2E] border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <MessageSquare className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-[#666666]'}`} />
-                    <span className="truncate font-medium">{c.title || 'Untitled Thread'}</span>
-                  </div>
-                  <button
-                    onClick={(e) => handleDeleteConversation(e, c.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 rounded transition"
-                    title="Delete conversation"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {isRenaming ? (
+                    <div className="flex items-center gap-1 w-full" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') submitRenameConversation(e, c.id);
+                          if (e.key === 'Escape') setRenamingConvId(null);
+                        }}
+                        className="flex-1 min-w-0 px-2 py-1 rounded-md bg-[#080D18] border border-[#4F8CFF] text-xs text-[#F1F5FC] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => submitRenameConversation(e, c.id)}
+                        className="p-1 text-emerald-400 hover:bg-[#080D18] rounded"
+                        title="Save title"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingConvId(null);
+                        }}
+                        className="p-1 text-[#8A9BB8] hover:text-[#F1F5FC] rounded"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MessageSquare
+                          className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#4F8CFF]' : 'text-[#64748B]'}`}
+                        />
+                        <span className="truncate">{c.title || 'Untitled Thread'}</span>
+                      </div>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => startRenameConversation(e, c)}
+                          className="p-1 hover:text-[#4F8CFF] rounded transition"
+                          title="Rename conversation"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteConversation(e, c.id)}
+                          className="p-1 hover:text-rose-400 rounded transition"
+                          title="Delete conversation"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Main Conversational Q&A Window */}
-      <div className="flex-1 flex flex-col bg-[#0D0D0D] border border-[#262626] rounded-2xl shadow-2xl overflow-hidden min-w-0 select-none">
+      {/* Main Conversational AI Workspace */}
+      <div className="flex-1 flex flex-col bg-[#080D18] border border-[#1E2E4A] rounded-2xl shadow-2xl overflow-hidden min-w-0">
         {/* Top Controls Bar */}
-        <div className="p-3 border-b border-[#222222] flex items-center justify-between gap-3 bg-[#141414]">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="p-3 border-b border-[#1E2E4A] flex flex-wrap items-center justify-between gap-2.5 bg-[#0C1424]">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <button
+              type="button"
               onClick={() => setShowHistoryDrawer(!showHistoryDrawer)}
-              className="p-1.5 rounded-lg text-[#9A9A9A] hover:text-white hover:bg-[#1A1A1A] transition shrink-0"
+              className="p-1.5 rounded-lg text-[#8A9BB8] hover:text-[#F1F5FC] hover:bg-[#111C2E] border border-transparent hover:border-[#1E2E4A] transition shrink-0"
               title={showHistoryDrawer ? 'Hide threads drawer' : 'Show threads drawer'}
             >
-              <History className="w-4 h-4 text-white" />
+              <History className="w-4 h-4 text-[#4F8CFF]" />
             </button>
 
-            <div className="flex items-center gap-2 min-w-0">
-              <Filter className="w-3.5 h-3.5 text-[#666666] shrink-0" />
-              <select
-                value={selectedDocId}
-                onChange={(e) => setSelectedDocId(e.target.value)}
-                className="text-xs font-semibold rounded-lg bg-[#1A1A1A] border border-[#262626] text-white px-2.5 py-1.5 focus:outline-none focus:border-white max-w-[200px] sm:max-w-xs truncate"
+            {/* Multi-document scope pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Filter className="w-3.5 h-3.5 text-[#64748B] shrink-0" />
+              <button
+                type="button"
+                onClick={() => handleToggleDocumentFilter('all')}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${
+                  selectedDocIds.length === 0
+                    ? 'bg-[#4F8CFF]/20 text-[#F1F5FC] border border-[#4F8CFF]/50'
+                    : 'bg-[#111C2E] text-[#8A9BB8] border border-[#1E2E4A] hover:text-[#F1F5FC]'
+                }`}
               >
-                <option value="all">🔍 All Documents ({documents.length})</option>
-                {documents.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    📄 {doc.filename} ({doc.total_chunks || doc.chunk_count || 0} chunks)
-                  </option>
-                ))}
-              </select>
+                All PDFs ({documents.length})
+              </button>
+              {documents.slice(0, 4).map((doc) => {
+                const selected = selectedDocIds.includes(doc.id);
+                return (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => handleToggleDocumentFilter(doc.id)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium max-w-[160px] truncate transition ${
+                      selected
+                        ? 'bg-[#8B7CFF]/20 text-[#F1F5FC] border border-[#8B7CFF]/60'
+                        : 'bg-[#111C2E] text-[#8A9BB8] border border-[#1E2E4A] hover:text-[#F1F5FC]'
+                    }`}
+                    title={`${doc.filename} (${doc.total_chunks || 0} chunks)`}
+                  >
+                    {doc.filename}
+                  </button>
+                );
+              })}
             </div>
-
-            {selectedDocObj && (
-              <span className="hidden lg:inline-flex text-[11px] text-white font-mono">
-                {selectedDocObj.total_pages || selectedDocObj.page_count || 1} pages •{' '}
-                {selectedDocObj.total_chunks || selectedDocObj.chunk_count || 0} chunks
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#1F1F1F] hover:bg-[#282828] text-white border border-[#2E2E2E] transition active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#111C2E] hover:bg-[#16243B] text-[#F1F5FC] border border-[#1E2E4A] transition active:scale-95"
               title="Upload PDF directly into AI Chat"
             >
-              <Paperclip className="w-3.5 h-3.5 text-[#9A9A9A]" />
+              <Paperclip className="w-3.5 h-3.5 text-[#4F8CFF]" />
               <span className="hidden sm:inline">Attach PDF</span>
             </button>
 
             <button
+              type="button"
               onClick={handleNewConversation}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#1F1F1F] hover:bg-[#282828] text-white border border-[#2E2E2E] transition active:scale-95"
-              title="Start a fresh question thread"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#111C2E] hover:bg-[#16243B] text-[#F1F5FC] border border-[#1E2E4A] transition active:scale-95"
+              title="Start a fresh study conversation"
             >
-              <Plus className="w-3.5 h-3.5 text-white" />
+              <Plus className="w-3.5 h-3.5 text-[#8B7CFF]" />
               <span className="hidden sm:inline">New Chat</span>
             </button>
           </div>
@@ -508,70 +823,74 @@ export default function Chat() {
 
         {/* Upload Status Banner */}
         {isUploadingChatFile && (
-          <div className="bg-[#1A1A1A] border-b border-[#262626] p-2.5 px-4 flex items-center justify-between text-xs text-white animate-pulse">
+          <div className="bg-[#111C2E] border-b border-[#4F8CFF]/30 p-2.5 px-4 flex items-center justify-between text-xs text-[#F1F5FC]">
             <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
+              <Loader2 className="w-4 h-4 animate-spin text-[#4F8CFF]" />
               <span>{uploadProgressText}</span>
             </div>
-            <span className="text-[11px] text-[#9A9A9A] font-mono">Indexing into FAISS...</span>
+            <span className="text-[11px] text-[#8A9BB8] font-mono">Indexing chunks into FAISS...</span>
           </div>
         )}
 
         {/* Messages Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 bg-[#080D18]">
           {initialLoading ? (
-            <div className="py-24 text-center text-xs text-[#9A9A9A] flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
-              <span>Loading messages...</span>
+            <div className="py-24 text-center text-xs text-[#8A9BB8] flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#4F8CFF]" />
+              <span>Loading study workspace...</span>
             </div>
           ) : safeMessages.length === 0 ? (
-            <div className="py-12 px-4 max-w-2xl mx-auto text-center space-y-6">
-              <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center text-black mx-auto shadow-xl">
-                <GraduationCap className="w-7 h-7 stroke-[2.5]" />
+            <div className="py-10 px-4 max-w-2xl mx-auto text-center space-y-6">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#4F8CFF] to-[#8B7CFF] flex items-center justify-center text-white mx-auto shadow-lg shadow-[#4F8CFF]/25">
+                <GraduationCap className="w-7 h-7 stroke-[2.2]" />
               </div>
 
               <div>
-                <h2 className="text-3xl font-bold text-white tracking-tight">
-                  What are you studying today?{' '}
-                  <span className="font-serif italic font-normal text-white">👋</span>
+                <h2 className="text-2xl sm:text-3xl font-bold text-[#F1F5FC] tracking-tight">
+                  Your Personal AI Study{' '}
+                  <span className="font-serif italic font-normal text-[#4F8CFF]">Tutor</span>
                 </h2>
-                <p className="text-xs text-[#9A9A9A] mt-2 leading-relaxed max-w-lg mx-auto">
-                  I'm your personal AI study companion. Ask me to break down tricky concepts, find formulas, test your understanding, or summarize key takeaways from your course notes.
+                <p className="text-xs sm:text-sm text-[#8A9BB8] mt-2 leading-relaxed max-w-lg mx-auto">
+                  Switch seamlessly between Learn, Exam, Practice, Code, and Research modes. Grounded in your uploaded PDFs with clickable page citations and live streaming.
                 </p>
               </div>
 
               {documents.length === 0 && (
-                <div className="p-4 rounded-xl bg-[#141414] border border-[#262626] text-xs text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left">
+                <div className="p-4 rounded-xl bg-[#111C2E] border border-[#1E2E4A] text-xs text-[#F1F5FC] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left">
                   <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-white shrink-0" />
-                    <span className="text-[#9A9A9A]">
-                      <strong className="text-white">AI Study Assistant Ready:</strong> Ask any academic question now, or attach your course slides anytime for page-by-page citations.
+                    <Sparkles className="w-4 h-4 text-[#4F8CFF] shrink-0" />
+                    <span className="text-[#8A9BB8]">
+                      <strong className="text-[#F1F5FC]">Attach Course Notes:</strong> Ask any academic question now or drop PDFs for multi-document hybrid RAG citations.
                     </span>
                   </div>
                   <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold shrink-0 flex items-center gap-1.5 transition text-xs shadow-sm active:scale-95"
+                    className="px-3.5 py-1.5 rounded-lg bg-[#4F8CFF] hover:bg-[#3B7BFA] text-white font-semibold shrink-0 flex items-center gap-1.5 transition text-xs shadow-sm"
                   >
-                    <Paperclip className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <Paperclip className="w-3.5 h-3.5" />
                     <span>Attach PDF</span>
                   </button>
                 </div>
               )}
 
-              <div className="text-left space-y-2 pt-2">
-                <span className="text-xs font-semibold text-[#666666] uppercase tracking-wider flex items-center gap-1.5">
-                  <HelpCircle className="w-3.5 h-3.5 text-[#9A9A9A]" />
-                  Quick Suggested Questions
+              <div className="text-left space-y-2.5 pt-1">
+                <span className="text-[11px] font-semibold text-[#8A9BB8] uppercase tracking-wider flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-[#8B7CFF]" />
+                  Suggested Study Prompts
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {QUICK_PROMPTS.map((item, idx) => (
                     <button
                       key={idx}
+                      type="button"
                       onClick={() => handleSendMessage(item.prompt)}
-                      className="p-3.5 text-left rounded-2xl bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#3A3A3A] text-xs text-[#9A9A9A] hover:text-white transition group shadow-sm"
+                      className="p-3.5 text-left rounded-2xl bg-[#111C2E] hover:bg-[#16243B] border border-[#1E2E4A] hover:border-[#4F8CFF]/50 text-xs transition group shadow-sm"
                     >
-                      <div className="font-semibold text-white group-hover:text-white transition">{item.label}</div>
-                      <p className="text-[11px] text-[#666666] mt-0.5 line-clamp-1">"{item.prompt}"</p>
+                      <div className="font-semibold text-[#F1F5FC] group-hover:text-[#4F8CFF] transition">
+                        {item.label}
+                      </div>
+                      <p className="text-[11px] text-[#8A9BB8] mt-1 line-clamp-1">"{item.prompt}"</p>
                     </button>
                   ))}
                 </div>
@@ -580,24 +899,27 @@ export default function Chat() {
           ) : (
             safeMessages.map((msg, index) => (
               <ChatBubble
-                key={index}
+                key={msg.id || index}
                 message={msg}
+                disabledActions={loading || isStreaming}
                 onNavigateToDoc={handleNavigateToDoc}
-                onPromptAction={(actionText) => handleSendMessage(actionText)}
+                onContextualAction={(actionType, mObj) => handleContextualAction(actionType, mObj)}
+                onRegenerate={() => handleRegenerateMessage(index)}
+                onEditUserMessage={(newTxt) => handleEditUserMessage(index, newTxt)}
+                onFeedback={(msgId, val) => handleFeedback(msgId, val)}
               />
             ))
           )}
 
-          {/* Loading Indicator */}
-          {loading && (
-            <div className="py-3 px-4 rounded-xl bg-[#141414] border border-[#262626] max-w-4xl mx-auto flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-black shrink-0">
-                <Loader2 className="w-4 h-4 animate-spin text-black" />
+          {loading && !isStreaming && (
+            <div className="py-3 px-4 rounded-xl bg-[#111C2E] border border-[#4F8CFF]/30 max-w-4xl mx-auto flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#4F8CFF] to-[#8B7CFF] flex items-center justify-center text-white shrink-0">
+                <Loader2 className="w-4 h-4 animate-spin" />
               </div>
               <div className="space-y-0.5 text-xs">
-                <p className="font-semibold text-white">StudyMind AI is searching vectors & generating response...</p>
-                <p className="text-[11px] text-[#666666]">
-                  FAISS Cosine Similarity • Page Grounding • Anti-hallucination verification
+                <p className="font-semibold text-[#F1F5FC]">StudyMind AI is generating your study action...</p>
+                <p className="text-[11px] text-[#8A9BB8]">
+                  Hybrid retrieval • Reranking • Grounding check
                 </p>
               </div>
             </div>
@@ -606,106 +928,92 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Bar & Actions */}
-        <div className="p-3 border-t border-[#222222] bg-[#0D0D0D] space-y-2">
+        {/* Bottom Smart Controls + Composer */}
+        <div className="p-3 sm:p-4 border-t border-[#1E2E4A] bg-[#0C1424] space-y-2.5">
           {error && (
-            <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2">
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                 <span>{error}</span>
               </div>
-              <button onClick={() => setError(null)} className="text-[#9A9A9A] hover:text-white">
+              <button type="button" onClick={() => setError(null)} className="text-[#8A9BB8] hover:text-[#F1F5FC]">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
 
-          {/* Tutor Persona & Explanation Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-[#9A9A9A]">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-              <span className="font-semibold text-[#666666] shrink-0">Depth:</span>
-              {[
-                { id: 'beginner', label: 'Beginner' },
-                { id: 'intermediate', label: 'Undergrad' },
-                { id: 'advanced', label: 'Rigorous Proof' },
-              ].map((lvl) => (
-                <button
-                  key={lvl.id}
-                  onClick={() => setTutorLevel(lvl.id)}
-                  className={`px-2.5 py-0.5 rounded-full transition shrink-0 ${
-                    tutorLevel === lvl.id
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'bg-[#141414] hover:bg-[#1A1A1A] text-[#9A9A9A] hover:text-white border border-[#262626]'
-                  }`}
-                >
-                  {lvl.label}
-                </button>
-              ))}
+          {/* Smart Chat Mode Selector + Understanding Level Selector directly above input */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 px-0.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+              {CHAT_MODES.map((md) => {
+                const Icon = md.icon;
+                const active = chatMode === md.id;
+                return (
+                  <button
+                    key={md.id}
+                    type="button"
+                    onClick={() => setChatMode(md.id)}
+                    title={md.hint}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition shrink-0 ${
+                      active
+                        ? 'bg-[#4F8CFF] text-white shadow-sm shadow-[#4F8CFF]/30'
+                        : 'bg-[#111C2E] hover:bg-[#16243B] text-[#8A9BB8] hover:text-[#F1F5FC] border border-[#1E2E4A]'
+                    }`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    <span>{md.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-              <span className="font-semibold text-[#666666] shrink-0">Mode:</span>
-              {[
-                { id: 'standard', label: 'Standard' },
-                { id: 'eli5', label: 'ELI5' },
-                { id: 'exam', label: 'Exam Rubric' },
-                { id: 'hinglish', label: 'Hinglish' },
-                { id: 'code', label: 'Code' },
-              ].map((md) => (
-                <button
-                  key={md.id}
-                  onClick={() => setTutorMode(md.id)}
-                  className={`px-2.5 py-0.5 rounded-full transition shrink-0 ${
-                    tutorMode === md.id
-                      ? 'bg-white text-black font-semibold shadow-sm'
-                      : 'bg-[#141414] hover:bg-[#1A1A1A] text-[#9A9A9A] hover:text-white border border-[#262626]'
-                  }`}
-                >
-                  {md.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+              <span className="text-[11px] font-semibold text-[#64748B] mr-1 shrink-0">Level:</span>
+              {EXPLANATION_LEVELS.map((lvl) => {
+                const active = tutorLevel === lvl.id;
+                return (
+                  <button
+                    key={lvl.id}
+                    type="button"
+                    onClick={() => setTutorLevel(lvl.id)}
+                    title={lvl.desc}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition shrink-0 ${
+                      active
+                        ? 'bg-[#8B7CFF]/25 text-[#F1F5FC] border border-[#8B7CFF]'
+                        : 'bg-[#111C2E] hover:bg-[#16243B] text-[#8A9BB8] hover:text-[#F1F5FC] border border-[#1E2E4A]'
+                    }`}
+                  >
+                    {lvl.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Quick Action Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none">
-            {QUICK_PROMPTS.map((chip, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSendMessage(chip.prompt)}
-                className="whitespace-nowrap px-3 py-1 rounded-full bg-[#141414] border border-[#262626] text-[#9A9A9A] hover:text-white hover:border-[#3A3A3A] transition shrink-0"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Textarea + Voice + Attachment Bar */}
-          <div className="relative flex items-end gap-2 bg-[#141414] border border-[#262626] focus-within:border-white rounded-xl p-2 transition shadow-xl">
-            {/* Attachment Button */}
+          {/* Input Composer */}
+          <div className="relative flex items-end gap-2 bg-[#111C2E] border border-[#1E2E4A] focus-within:border-[#4F8CFF] rounded-2xl p-2 transition shadow-xl">
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-[#9A9A9A] hover:text-white hover:bg-[#1A1A1A] rounded-lg transition shrink-0"
+              className="p-2 text-[#8A9BB8] hover:text-[#4F8CFF] hover:bg-[#080D18] rounded-xl transition shrink-0"
               title="Attach PDF Document"
             >
               <Paperclip className="w-4 h-4" />
             </button>
 
-            {/* Voice Input Button */}
             <button
               type="button"
               onClick={toggleVoiceListening}
-              className={`p-2 rounded-lg transition shrink-0 ${
+              className={`p-2 rounded-xl transition shrink-0 ${
                 isListening
                   ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse'
-                  : 'text-[#9A9A9A] hover:text-white hover:bg-[#1A1A1A]'
+                  : 'text-[#8A9BB8] hover:text-[#4F8CFF] hover:bg-[#080D18]'
               }`}
-              title={isListening ? 'Listening... click to stop' : 'Click to speak question (Voice Input)'}
+              title={isListening ? 'Listening... click to stop' : 'Voice Input'}
             >
               {isListening ? <MicOff className="w-4 h-4 text-rose-400" /> : <Mic className="w-4 h-4" />}
             </button>
 
-            {/* Input Box */}
             <textarea
               rows={2}
               value={inputQuestion}
@@ -713,34 +1021,46 @@ export default function Chat() {
               onKeyDown={handleKeyDown}
               placeholder={
                 isListening
-                  ? '🎙️ Listening to your voice... Speak now!'
-                  : documents.length === 0
-                  ? 'Type a question or attach a PDF to unlock grounded RAG citations...'
-                  : selectedDocObj
-                  ? `Ask about "${selectedDocObj.filename}" (Press Enter to send)...`
-                  : 'Ask any question about your study materials (Press Enter to send)...'
+                  ? 'Listening to your voice...'
+                  : `${activeModeObj.label}: ${activeModeObj.hint}... (Enter to send)`
               }
               disabled={loading}
-              className="flex-1 bg-transparent border-0 text-sm text-white placeholder-[#666666] focus:outline-none resize-none p-1.5"
+              className="flex-1 bg-transparent border-0 text-sm text-[#F1F5FC] placeholder-[#64748B] focus:outline-none resize-none p-1.5"
             />
 
-            {/* Send Button */}
-            <button
-              onClick={() => handleSendMessage()}
-              disabled={loading || !inputQuestion.trim()}
-              className="p-2.5 rounded-lg bg-white hover:bg-neutral-200 disabled:bg-[#1F1F1F] text-black disabled:text-[#666666] transition shadow-sm active:scale-95 shrink-0"
-              title="Send message"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : <Send className="w-4 h-4 stroke-[2.5]" />}
-            </button>
+            {isStreaming ? (
+              <button
+                type="button"
+                onClick={handleStopGeneration}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold transition shadow-sm shrink-0"
+                title="Stop generation"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>Stop</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleSendMessage()}
+                disabled={loading || !inputQuestion.trim()}
+                className="p-2.5 rounded-xl bg-[#4F8CFF] hover:bg-[#3B7BFA] disabled:bg-[#16243B] text-white disabled:text-[#64748B] transition shadow-sm active:scale-95 shrink-0"
+                title="Send message"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 stroke-[2.3]" />}
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-[#666666] px-1 font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8A9BB8] px-1 font-mono">
             <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-              {selectedDocObj ? `Searching: ${selectedDocObj.filename}` : 'Searching all indexed documents'}
+              <span className="w-1.5 h-1.5 rounded-full bg-[#4F8CFF]" />
+              {selectedDocIds.length > 0
+                ? `Searching ${selectedDocIds.length} selected PDF(s)`
+                : `Searching all uploaded PDFs (${documents.length})`}
             </span>
-            <span>🎙️ Voice input & 🔊 Text-to-Speech active • Shift + Enter for newline</span>
+            <span>
+              {activeModeObj.label} • {tutorLevel} • SSE Streaming active
+            </span>
           </div>
         </div>
       </div>

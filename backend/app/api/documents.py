@@ -137,12 +137,13 @@ def get_document_file(
             detail=f"PDF physical file '{target_filename}' not found on storage."
         )
 
+    safe_name = doc.filename.replace('"', "")
     return FileResponse(
         path=str(file_path),
         media_type="application/pdf",
         filename=doc.filename,
         headers={
-            "Content-Disposition": f'inline; filename="{doc.filename}"',
+            "Content-Disposition": f'inline; filename="{safe_name}"',
             "Cache-Control": "public, max-age=3600"
         }
     )
@@ -165,4 +166,18 @@ def delete_document(
     return {
         "success": True,
         "message": f"Document '{document_id}' and all associated vector embeddings were deleted."
+    }
+
+
+@router.post("/reindex", response_model=dict)
+def safe_reindex_vector_store(
+    current_user: User = Depends(get_current_user),
+):
+    """Safely verifies and repairs missing vector embeddings without wiping existing FAISS indexes."""
+    from app.rag.vector_store import vector_store
+    reindexed_count = vector_store.safe_reindex_missing()
+    return {
+        "success": True,
+        "reindexed_chunks": reindexed_count,
+        "total_chunks": vector_store.total_chunks_for_user(current_user.id),
     }

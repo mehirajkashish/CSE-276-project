@@ -24,17 +24,25 @@ class PDFExtractionError(Exception):
 
 
 def _clean_disclaimer_boilerplate(text: str) -> str:
-    """Strips repetitive classroom slide disclaimers and footer noise."""
+    """Strips repetitive classroom slide disclaimers while preserving paragraph structure and fixing hyphenated line-wraps."""
     patterns = [
         r"This\s+PPT\s+should\s+be\s+used\s+as\s+reference\s+only[^\n\.]*[\n\.]*",
         r"Reading\s+books\s+\(mentioned\s+in\s+syllabus\)\s+is\s+mandatory[^\n\.]*[\n\.]*",
         r"for\s+the\s+preparation\s+of\s+the\s+examinations?[\n\.]*",
         r"for\s+the\s+preparation\s+of\s+the\s+exam[^\n\.]*[\n\.]*"
     ]
-    cleaned = text
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Rejoin hyphenated words broken across PDF line wraps
+    cleaned = re.sub(r"([A-Za-z])-\s*\n\s*([a-z])", r"\1\2", cleaned)
     for p in patterns:
         cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
-    return " ".join(cleaned.split()).strip()
+    # Collapse inline whitespace per paragraph while keeping paragraph boundaries
+    paragraphs = []
+    for para in re.split(r"\n{2,}", cleaned):
+        normalized = " ".join(para.split()).strip()
+        if normalized:
+            paragraphs.append(normalized)
+    return "\n\n".join(paragraphs).strip()
 
 
 def extract_text_from_pdf(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -62,10 +70,20 @@ def extract_text_from_pdf(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[st
         try:
             doc = fitz.open(file_path)
             metadata["page_count"] = len(doc)
+            pypdf_reader = None
             for page_idx in range(len(doc)):
                 page = doc[page_idx]
-                text = page.get_text("text")
+                text = page.get_text("text") or ""
                 cleaned_text = _clean_disclaimer_boilerplate(text)
+                if not cleaned_text and HAS_PYPDF:
+                    try:
+                        if pypdf_reader is None:
+                            pypdf_reader = pypdf.PdfReader(file_path)
+                        if page_idx < len(pypdf_reader.pages):
+                            fallback_text = pypdf_reader.pages[page_idx].extract_text() or ""
+                            cleaned_text = _clean_disclaimer_boilerplate(fallback_text)
+                    except Exception:
+                        pass
                 if cleaned_text:
                     pages_data.append({
                         "page_number": page_idx + 1,

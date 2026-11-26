@@ -34,7 +34,13 @@ async def add_security_headers(request: Request, call_next):
             content={"detail": f"Internal server error: {str(exc)}"},
         )
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    is_pdf_embed = request.url.path.endswith("/file") or request.url.path.startswith("/uploads/")
+    if is_pdf_embed:
+        response.headers["Content-Security-Policy"] = (
+            "frame-ancestors 'self' https://*.github.io https://*.vercel.app https://*.onrender.com http://localhost:* http://127.0.0.1:*"
+        )
+    else:
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
