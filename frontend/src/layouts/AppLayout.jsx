@@ -14,6 +14,7 @@ export default function AppLayout() {
   const [stats, setStats] = useState({ total_documents: 0, total_chunks: 0 });
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -80,19 +81,25 @@ export default function AppLayout() {
     navigate('/chat?new=true');
   };
 
+  const isChatRoute = location.pathname === '/chat' || location.pathname === '/workspace/chat';
+
   return (
-    <div className="flex h-screen bg-[#0D0D0D] text-white overflow-hidden font-sans select-none">
-      {/* Sidebar */}
-      <Sidebar health={health} />
+    <div className="flex h-[100dvh] bg-[#0D0D0D] text-white overflow-hidden font-sans select-none">
+      {/* Sidebar (Desktop fixed + Mobile/Tablet slide-over drawer) */}
+      <Sidebar
+        health={health}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
+      />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0 bg-[#0D0D0D]">
+      <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden min-w-0 bg-[#0D0D0D]">
         {/* Demo Mode Notification Bar */}
         {isDemoMode && (
-          <div className="bg-[#141414] border-b border-[#222222] px-6 py-2 text-xs flex items-center justify-between text-[#9A9A9A] z-30 shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              <span className="font-semibold text-white">Interactive Demo Mode</span>
+          <div className="bg-[#141414] border-b border-[#222222] px-3 sm:px-6 py-2 text-xs flex items-center justify-between gap-2 text-[#9A9A9A] z-30 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shrink-0" />
+              <span className="font-semibold text-white truncate">Demo Mode</span>
               <span className="hidden sm:inline text-[#666666] text-[11px]">
                 • Pre-loaded sample academic curriculum
               </span>
@@ -102,23 +109,24 @@ export default function AppLayout() {
                 exitDemoMode();
                 navigate('/login');
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white hover:bg-neutral-200 text-black text-[11px] font-semibold transition shadow-sm active:scale-95"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-lg bg-white hover:bg-neutral-200 text-black text-[11px] font-semibold transition shadow-sm active:scale-95 shrink-0"
             >
               <LogIn className="w-3 h-3 text-current" />
-              <span>Sign In with Account</span>
+              <span>Sign In</span>
             </button>
           </div>
         )}
 
         <Navbar
           title={getPageTitle()}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
           onOpenUpload={() => setIsUploadOpen(true)}
           onNewChat={handleNewChat}
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
           stats={stats}
         />
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 bg-[#0D0D0D]">
+        <main className={`flex-1 overflow-y-auto bg-[#0D0D0D] ${isChatRoute ? 'p-0 sm:p-4 lg:p-6 overflow-hidden' : 'p-3 sm:p-5 lg:p-8'}`}>
           <Outlet context={{ refreshStats: fetchHealthAndStats, openUpload: () => setIsUploadOpen(true) }} />
         </main>
       </div>

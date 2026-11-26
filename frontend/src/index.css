@@ -26,10 +26,12 @@
     background: #2A3F60;
   }
 
-  body {
+  html, body {
     background-color: #080D18;
     color: #F1F5FC;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 

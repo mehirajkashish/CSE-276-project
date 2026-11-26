@@ -270,7 +270,7 @@ export default function Exams() {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[#9A9A9A]">Question Count</label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[3, 5, 10, 15].map((cnt) => (
                   <button
                     key={cnt}

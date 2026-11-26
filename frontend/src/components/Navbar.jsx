@@ -12,12 +12,13 @@ import {
   Flame,
   ChevronRight,
   Sun,
-  Moon
+  Moon,
+  Menu
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
-export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPalette, stats }) {
+export default function Navbar({ title, onOpenMobileNav, onOpenUpload, onNewChat, onOpenCommandPalette, stats }) {
   const { user } = useAuth();
   const { theme, toggleTheme, isDark } = useTheme();
   const navigate = useNavigate();
@@ -53,10 +54,21 @@ export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPa
   };
 
   return (
-    <header className="h-16 border-b border-[#222222] bg-[#141414] backdrop-blur-md px-4 sm:px-6 flex items-center justify-between sticky top-0 z-20 select-none">
-      {/* Title & Breadcrumbs */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div>
+    <header className="h-14 sm:h-16 border-b border-[#222222] bg-[#141414] backdrop-blur-md px-3 sm:px-6 flex items-center justify-between gap-2 sticky top-0 z-20 select-none shrink-0">
+      {/* Mobile Menu + Title & Breadcrumbs */}
+      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+        {onOpenMobileNav && (
+          <button
+            type="button"
+            onClick={onOpenMobileNav}
+            className="lg:hidden p-2 rounded-lg bg-[#1A1A1A] hover:bg-[#242424] border border-[#262626] text-[#9A9A9A] hover:text-white transition shrink-0"
+            aria-label="Open navigation menu"
+            title="Menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        )}
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="text-sm sm:text-base font-bold text-white tracking-tight truncate">
               {title}
@@ -73,11 +85,11 @@ export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPa
       </div>
 
       {/* Center / Right Actions */}
-      <div className="flex items-center gap-2.5 sm:gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {/* Global Search / Command Palette (Ctrl + K) Button */}
         <button
           onClick={onOpenCommandPalette}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#141414] border border-[#222222] hover:border-[#3A3A3A] text-[#9A9A9A] hover:text-white text-xs transition shadow-sm group"
+          className="flex items-center gap-2 p-2 sm:px-3 sm:py-1.5 rounded-lg bg-[#141414] border border-[#222222] hover:border-[#3A3A3A] text-[#9A9A9A] hover:text-white text-xs transition shadow-sm group"
           title="Search or jump to (Ctrl + K)"
         >
           <Search className="w-3.5 h-3.5 text-[#666666] group-hover:text-white transition" />
@@ -90,7 +102,8 @@ export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPa
         {/* Upload PDF */}
         <button
           onClick={onOpenUpload}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-neutral-200 text-black shadow-sm transition active:scale-95 shrink-0"
+          className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-neutral-200 text-black shadow-sm transition active:scale-95 shrink-0"
+          title="Upload PDF"
         >
           <UploadCloud className="w-3.5 h-3.5 stroke-[2.5]" />
           <span className="hidden sm:inline">Upload PDF</span>
@@ -99,7 +112,8 @@ export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPa
         {/* New Chat */}
         <button
           onClick={onNewChat}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#1F1F1F] hover:bg-[#282828] text-white border border-[#2E2E2E] transition active:scale-95 shrink-0"
+          className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-lg bg-[#1F1F1F] hover:bg-[#282828] text-white border border-[#2E2E2E] transition active:scale-95 shrink-0"
+          title="New Chat"
         >
           <MessageSquarePlus className="w-3.5 h-3.5 text-[#9A9A9A]" />
           <span className="hidden sm:inline">New Chat</span>
@@ -117,7 +131,7 @@ export default function Navbar({ title, onOpenUpload, onNewChat, onOpenCommandPa
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-72 bg-[#141414] border border-[#262626] rounded-2xl shadow-2xl p-3 z-50 text-xs text-white space-y-2 animate-in fade-in zoom-in-95">
+            <div className="absolute right-0 mt-2 w-[min(18rem,calc(100vw-1.5rem))] bg-[#141414] border border-[#262626] rounded-2xl shadow-2xl p-3 z-50 text-xs text-white space-y-2 animate-in fade-in zoom-in-95">
               <div className="flex items-center justify-between border-b border-[#222222] pb-2">
                 <span className="font-bold text-white">Study Notifications</span>
                 <span className="text-[10px] text-[#9A9A9A] font-mono">2 New</span>

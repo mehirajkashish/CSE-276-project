@@ -606,7 +606,7 @@ export default function StudyTools() {
             {activeTool === 'mindmap' && (
               <div className="space-y-4">
                 <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 overflow-x-auto">
-                  <div className="min-w-[600px] flex items-center justify-center p-4">
+                  <div className="w-full lg:min-w-[600px] flex items-center justify-center p-2 sm:p-4">
                     <div className="space-y-6 text-center w-full">
                       <div className="inline-block px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-sm shadow-xl shadow-blue-500/20">
                         🏛️ {mindMapData?.root_topic || selectedDocObj?.filename || 'Curriculum Subject'}

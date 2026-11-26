@@ -188,19 +188,19 @@ export default function Viewer() {
     : [];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7.5rem)] max-w-7xl mx-auto space-y-4 select-none">
+    <div className="flex flex-col lg:h-[calc(100dvh-7.5rem)] max-w-7xl mx-auto space-y-4 select-none">
       {/* Top Document Selector Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#1A1A1A] border border-[#262626] shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
           <div className="w-8 h-8 rounded-lg bg-[#0D0D0D] border border-[#262626] flex items-center justify-center text-white shrink-0">
             <BookOpen className="w-4 h-4" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[#9A9A9A] font-medium">Document:</span>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-xs text-[#9A9A9A] font-medium shrink-0">Document:</span>
             <select
               value={selectedDocId}
               onChange={(e) => setSelectedDocId(e.target.value)}
-              className="text-xs font-semibold rounded-lg bg-[#0D0D0D] border border-[#262626] text-white px-3 py-1.5 focus:outline-none focus:border-white max-w-sm truncate"
+              className="text-xs font-semibold rounded-lg bg-[#0D0D0D] border border-[#262626] text-white px-3 py-1.5 focus:outline-none focus:border-white w-full sm:w-auto sm:max-w-sm truncate min-w-0"
             >
               {documents.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -212,7 +212,7 @@ export default function Viewer() {
         </div>
 
         {doc && (
-          <div className="flex items-center gap-3 text-xs text-[#9A9A9A]">
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs text-[#9A9A9A]">
             <span className="flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-white" />
               <strong className="text-white font-mono">{doc.total_pages || doc.page_count || 1}</strong> Pages
@@ -227,7 +227,7 @@ export default function Viewer() {
                 href={getPdfUrl(doc)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1F1F1F] hover:bg-[#282828] border border-[#2E2E2E] text-white font-medium text-xs transition ml-auto sm:ml-0"
               >
                 <span>Raw PDF</span>
                 <ExternalLink className="w-3 h-3" />
@@ -238,9 +238,9 @@ export default function Viewer() {
       </div>
 
       {/* Main Viewer Area (Split into Left: Page View & Right: Extracted Chunks & Search) */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 overflow-hidden min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:overflow-hidden min-h-0">
         {/* Left Column: Rendered PDF Page Display (7 Cols) */}
-        <div className="lg:col-span-7 flex flex-col rounded-2xl border border-[#262626] bg-[#141414] overflow-hidden shadow-sm">
+        <div className="lg:col-span-7 flex flex-col rounded-2xl border border-[#262626] bg-[#141414] overflow-hidden shadow-sm min-h-[55vh] lg:min-h-0">
           {/* Page Navigation Header */}
           <div className="p-3 border-b border-[#222222] bg-[#141414] flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2 text-xs font-medium text-[#9A9A9A]">

@@ -763,7 +763,7 @@ export default function Chat() {
   /* ─────────────────────────────────────────────────── */
   return (
     <div
-      className="flex h-[calc(100vh-7.5rem)] max-w-screen-2xl mx-auto relative overflow-hidden rounded-2xl border border-white/[0.06]"
+      className="flex h-full max-w-screen-2xl mx-auto relative overflow-hidden rounded-none sm:rounded-2xl border-0 sm:border border-white/[0.06]"
       onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
       onDragLeave={() => setIsDraggingOver(false)}
       onDrop={(e) => { e.preventDefault(); setIsDraggingOver(false); if (e.dataTransfer.files?.length > 0) handleChatFileUpload(e.dataTransfer.files[0]); }}
@@ -1126,7 +1126,7 @@ export default function Chat() {
 
                     {modelMenuOpen && (
                       <div
-                        className="absolute bottom-10 left-0 w-72 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
+                        className="absolute bottom-10 left-0 w-72 max-w-[calc(100vw-2rem)] rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
                         style={{
                           background: 'rgba(15, 24, 42, 0.97)',
                           backdropFilter: 'blur(22px)',
@@ -1195,7 +1195,7 @@ export default function Chat() {
 
                     {langMenuOpen && (
                       <div
-                        className="absolute bottom-10 left-0 w-72 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
+                        className="absolute bottom-10 left-0 w-72 max-w-[calc(100vw-2rem)] rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
                         style={{
                           background: 'rgba(15, 24, 42, 0.97)',
                           backdropFilter: 'blur(22px)',
@@ -1257,7 +1257,7 @@ export default function Chat() {
 
                     {docScopeOpen && (
                       <div
-                        className="absolute bottom-10 left-0 w-64 rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
+                        className="absolute bottom-10 left-0 w-64 max-w-[calc(100vw-2rem)] rounded-2xl p-2 z-40 space-y-1 animate-composer-pop"
                         style={{
                           background: 'rgba(15, 24, 42, 0.97)',
                           backdropFilter: 'blur(22px)',
