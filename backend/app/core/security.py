@@ -62,6 +62,8 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
     # Import User model
     from app.models.db_models import User
     user = db.query(User).filter(User.id == user_id).first()
+    if user is None and payload.get("email"):
+        user = db.query(User).filter(User.email == payload["email"]).first()
     if user is None:
         raise credentials_exception
     return user
